@@ -335,7 +335,7 @@ static void emit_elf(struct rospan insns) {
                 syms[data_sym].st_size = 3 * 1024;
                 syms[data_sym].st_info = ELF32_ST_INFO(STB_LOCAL, STT_OBJECT);
                 syms[data_sym].st_other = STV_DEFAULT;
-                syms[data_sym].st_shndx = text_shdr;
+                syms[data_sym].st_shndx = data_shdr;
 
                 u32 rela_size = 2 * sizeof(Elf32_Rela);
                 u32 rela_offt = out_resv_index(&elf, rela_size);
@@ -343,12 +343,12 @@ static void emit_elf(struct rospan insns) {
                     Elf32_Rela *lui = elf.bytes + rela_offt;
                     Elf32_Rela *addi = lui + 1;
                     // lui s1, <data address>.hi20
-                    lui->r_offset = insns_begin_virt + 0;
+                    lui->r_offset = 0;
                     lui->r_info = ELF32_R_INFO(data_sym_ndx, R_RISCV_HI20);
                     lui->r_addend = 0;
 
                     // addi s1, <data address>.lo12
-                    addi->r_offset = lui->r_offset + 4;
+                    addi->r_offset = 4;
                     addi->r_info = ELF32_R_INFO(data_sym_ndx, R_RISCV_HI20);
                     addi->r_addend = 0;
                 }
@@ -362,7 +362,7 @@ static void emit_elf(struct rospan insns) {
                 sections[rela_shdr].sh_offset = rela_offt;
                 sections[rela_shdr].sh_size = rela_size;
                 sections[rela_shdr].sh_link = symtab_shdr;
-                sections[rela_shdr].sh_info = 0;
+                sections[rela_shdr].sh_info = text_shdr;
                 sections[rela_shdr].sh_addralign = 0;
                 sections[rela_shdr].sh_entsize = sizeof(Elf32_Rela);
             }
