@@ -1,4 +1,5 @@
 #include "loader.h"
+#include "common/log.h"
 #include <elf.h>
 #include <errno.h>
 #include <stdio.h>
@@ -214,6 +215,18 @@ int loader_read_elf(int fd, struct loaded_exe *_Nonnull exe) {
             current_page =
                 add_page(&pages, next_segment_offset, segm->phdr->p_flags);
         }
+
+        uint32_t segm_virtual_end = segm->phdr->p_vaddr + segm->phdr->p_memsz;
+
+        // Ensure we patch the entrypoint so that it's correctly based on our
+        // offset.
+        if (as.elf->e_entry >= segm->phdr->p_vaddr &&
+            as.elf->e_entry < segm_virtual_end) {
+            exe->entrypoint = as.elf->e_entry - segm->phdr->p_vaddr;
+            exe->entrypoint += next_segment_offset;
+        }
+
+        segm->mem_offset = next_segment_offset;
         next_segment_offset += segm->phdr->p_memsz;
     }
 
@@ -231,7 +244,11 @@ int loader_read_elf(int fd, struct loaded_exe *_Nonnull exe) {
 
     // Copy segments to their memory locations
     for (struct loadable_segment *segm = memory_segms.head; segm != NULL;
-         ++segm) {
+         segm = segm->next) {
+
+        log("segm filesz  = 0x%x\n", segm->phdr->p_filesz);
+        log("segm offset = 0x%lx\n", segm->mem_offset);
+
         memcpy(memory + segm->mem_offset, as.begin + segm->phdr->p_offset,
                segm->phdr->p_filesz);
         // per the ELF(5) man page: if memsz > filesz then there are (memsz -
@@ -249,9 +266,8 @@ int loader_read_elf(int fd, struct loaded_exe *_Nonnull exe) {
          page = page->next) {
 
         int prot = 0;
-        uint8_t flags = page->flags & (PF_R | PF_W | PF_X);
 
-#define hasflag(flag) ((flags & flag) == flag)
+#define hasflag(flag) ((page->flags & flag))
         if (hasflag(PF_R))
             prot |= PROT_READ;
         if (hasflag(PF_W))
@@ -269,7 +285,6 @@ int loader_read_elf(int fd, struct loaded_exe *_Nonnull exe) {
 
     exe->mem = memory;
     exe->mem_count = full_memory_image_size;
-    exe->entrypoint = as.elf->e_entry - starting_virtual_address;
 
 clean_pages_list:
     destroy_page_list(&pages);
@@ -297,15 +312,18 @@ add_segment(struct loadable_segments_list *list) {
 }
 
 static void destroy_segment_list(struct loadable_segments_list *list) {
-    for (struct loadable_segment *segm = list->head; segm != NULL;
-         segm = segm->next) {
+    for (struct loadable_segment *segm = list->head; segm != NULL;) {
+        struct loadable_segment *next = segm->next;
         free(segm);
+        segm = next;
     }
 }
 
 static struct page_descr *add_page(struct page_descr_list *list, size_t offset,
                                    uint8_t flags) {
     struct page_descr *page = malloc(sizeof(*page));
+    page->offset_from_mmap = offset;
+    page->flags = flags;
 
     page->next = NULL;
     if (list->tail) {
@@ -323,9 +341,10 @@ static void set_page_end(struct page_descr *page, size_t end_offset) {
 }
 
 static void destroy_page_list(struct page_descr_list *list) {
-    for (struct page_descr *page = list->head; page != NULL;
-         page = page->next) {
+    for (struct page_descr *page = list->head; page != NULL;) {
+        struct page_descr *next = page->next;
         free(page);
+        page = next;
     }
 }
 

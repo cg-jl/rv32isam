@@ -11,7 +11,7 @@
 #endif
 
 struct loaded_exe {
-    void *mem;
+    void *_Nonnull mem;
     size_t mem_count;
     uint64_t entrypoint;
 };
