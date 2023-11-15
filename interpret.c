@@ -3,6 +3,8 @@
 //
 
 #include "interpret.h"
+#include "common/log.h"
+#include "emu/dasm.h"
 #include "emu/insn.h"
 #include <assert.h>
 #include <stdio.h>
@@ -45,7 +47,7 @@ void interpret(void const *memory, uint32_t entrypoint) {
         }
         as.raw = *(uint32_t *)(__builtin_assume_aligned(insn_ptr, 4));
         printf("insn: %x\n", as.raw);
-        printf("opcode: %x\n", as.insn.unknown.opcode);
+        printf("opcode: %s\n", opcode_names[as.insn.unknown.opcode]);
         switch (as.insn.unknown.opcode) {
         case op_lui:
             // x[rd] = sext(immediate[31:12] << 12)
@@ -110,6 +112,7 @@ void interpret(void const *memory, uint32_t entrypoint) {
                 case shift_func_srai:
                     assert(!"not implemented");
                 }
+                break;
             }
             }
             break;

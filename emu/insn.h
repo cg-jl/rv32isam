@@ -11,33 +11,33 @@
 
 // RISC-V Specification, Table 19.1: RISC-V base opcode map.
 enum insn_op {
-    op_load = 0b00000,
-    op_load_fp = 0b00001,
-    op_custom_0 = 0b00010,
-    op_misc_mem = 0b00011,
-    op_imm = 0b00100,
-    op_auipc = 0b00101,
-    op_imm_32 = 0b00110,
-    op_store = 0b01000,
-    op_store_fp = 0b01001,
-    op_custom_1 = 0b01010,
-    op_amo = 0b01011,
-    op_op = 0b01100,
-    op_lui = 0b01101,
-    op_op_32 = 0b01110,
-    op_madd = 0b10000,
-    op_msub = 0b10001,
-    op_nmsub = 0b10010,
-    op_nmadd = 0b10011,
-    op_fp = 0b10100,
-    // reserved: 0b10100
-    op_custom2_rv128 = 0b10110,
-    op_branch = 0b11000,
-    op_jalr = 0b11001,
-    // reserved: 0b11010
-    op_system = 0b11100,
-    // reserved: 0b11101
-    op_custom3_rv128 = 0b11110,
+    op_load = 0b0000011,
+    op_load_fp = 0b0000111,
+    op_custom_0 = 0b0001011,
+    op_misc_mem = 0b0001111,
+    op_imm = 0b0010011,
+    op_auipc = 0b0010111,
+    op_imm_32 = 0b0011011,
+    op_store = 0b0100011,
+    op_store_fp = 0b0100111,
+    op_custom_1 = 0b0101011,
+    op_amo = 0b0101111,
+    op_op = 0b0110011,
+    op_lui = 0b0110111,
+    op_op_32 = 0b0111011,
+    op_madd = 0b1000011,
+    op_msub = 0b1000111,
+    op_nmsub = 0b1001011,
+    op_nmadd = 0b1001111,
+    op_fp = 0b1010011,
+    // reserved: 0b1010011
+    op_custom2_rv128 = 0b1011011,
+    op_branch = 0b1100011,
+    op_jalr = 0b1100111,
+    // reserved: 0b1101011
+    op_system = 0b1110011,
+    // reserved: 0b1110111
+    op_custom3_rv128 = 0b1111011,
 };
 
 // The following are set in the funct3 bitfield, or otherwise if specified.

@@ -14,11 +14,9 @@ add_executable(cpu
     loader.h
     interpret.c
     interpret.h
+    emu/dasm.c
     emu/insn.h)
 
 add_executable(bfc 
     bfc.c
     bfc/out.c)
-
-# Avoid inlining of static functions when debugging.
-target_compile_options(cpu PRIVATE -g -fno-optimize-sibling-calls)
