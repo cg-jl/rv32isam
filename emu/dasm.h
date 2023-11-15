@@ -7,3 +7,5 @@
 extern char const *opcode_names[];
 
 void dasm(FILE *out, u32 raw);
+
+// vim:ft=c

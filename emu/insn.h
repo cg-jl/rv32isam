@@ -11,6 +11,8 @@
 
 // RISC-V Specification, Table 19.1: RISC-V base opcode map.
 enum insn_op {
+    // I-type.
+    // Check funct3 as enum insn_load_func.
     op_load = 0b0000011,
     op_load_fp = 0b0000111,
     op_custom_0 = 0b0001011,

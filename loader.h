@@ -1,6 +1,5 @@
 
-#ifndef SAM_LOADER_H
-#define SAM_LOADER_H
+#pragma once
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -22,5 +21,4 @@ int loader_read_raw(int fd, struct loaded_exe *_Nonnull exe);
 
 void loader_destroy_exe(struct loaded_exe *_Nonnull exe);
 
-#endif
-// vim:sw=4
+// vim:sw=4:ft=c
