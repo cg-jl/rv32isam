@@ -1,7 +1,10 @@
 #include "loader.h"
 #include "common/log.h"
+#include "common/types.h"
+#include <assert.h>
 #include <elf.h>
 #include <errno.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -73,7 +76,12 @@ static uint64_t align_upwards(uint64_t val, uint64_t align) {
     return (val + (align - 1)) & ~(align - 1);
 }
 
+static bool find_offset_for_section(Elf32_Shdr const *section,
+                                    struct loadable_segments_list list,
+                                    u32 *result);
+
 int loader_read_elf(int fd, struct loaded_exe *_Nonnull exe) {
+    log("Begin loading image fd = %u\n", fd);
     union {
         void *begin;
         Elf32_Ehdr *elf;
@@ -127,7 +135,6 @@ int loader_read_elf(int fd, struct loaded_exe *_Nonnull exe) {
     }
 
     // TODO: If the ELF file has RVC flag set, then alignment can be 16-bit.
-    // TODO: relocations
 
     struct loadable_segments_list memory_segms = {0};
 
@@ -259,7 +266,91 @@ int loader_read_elf(int fd, struct loaded_exe *_Nonnull exe) {
         }
     }
 
-    // TODO: relocations
+    Elf32_Shdr const *sections = as.begin + as.elf->e_shoff;
+    char const *shnames =
+        as.elf->e_shoff == 0
+            ? NULL
+            : as.begin + sections[as.elf->e_shstrndx].sh_offset;
+    for (Elf32_Half i = 0; i < as.elf->e_shnum; ++i) {
+        Elf32_Shdr const *rela_shdr = &sections[i];
+        char const *shname =
+            shnames == 0 ? NULL : (shnames + rela_shdr->sh_name);
+        if (rela_shdr->sh_type == SHT_RELA) {
+            log("Found relocation table '%s'\n", shname);
+            Elf32_Shdr const *symtab = &sections[rela_shdr->sh_link];
+            Elf32_Sym const *syms = as.begin + symtab->sh_offset;
+            char const *sym_names =
+                as.begin + sections[symtab->sh_link].sh_offset;
+            assert(rela_shdr->sh_entsize == sizeof(Elf32_Rela));
+
+            Elf32_Word rela_count = rela_shdr->sh_size / sizeof(Elf32_Rela);
+            log("Have %u relocations\n", rela_count);
+
+            Elf32_Rela const *relatbl = as.begin + rela_shdr->sh_offset;
+
+            u32 patch_base;
+            if (!find_offset_for_section(&sections[rela_shdr->sh_info],
+                                         memory_segms, &patch_base)) {
+                error("Patch location for '%s' is relative to '%s', which "
+                      "can't be mapped to the memory image!\n",
+                      shnames ? shnames + rela_shdr->sh_name : NULL,
+                      shnames ? shnames + sections[rela_shdr->sh_info].sh_name
+                              : NULL);
+                goto clean_mapped_exe;
+            }
+
+            log("Patch base for '%s' = 0x%x\n",
+                shnames ? shnames + sections[rela_shdr->sh_info].sh_name : NULL,
+                patch_base);
+
+            for (Elf32_Word i = 0; i < rela_count; ++i) {
+                Elf32_Rela const *rela = &relatbl[i];
+
+                u32 const sym_ndx = ELF32_R_SYM(rela->r_info);
+
+                u32 const sym_shndx = syms[sym_ndx].st_shndx;
+
+                log("Relocation @  0x%x S =  '%s' (0x%x from '%s') using type "
+                    "= "
+                    "%u\n",
+                    rela->r_offset, sym_names + syms[sym_ndx].st_name,
+                    syms[sym_ndx].st_value,
+                    sections[sym_shndx].sh_name + shnames,
+                    ELF32_R_TYPE(rela->r_info));
+                u32 sym_base;
+                if (!find_offset_for_section(&sections[sym_shndx], memory_segms,
+                                             &sym_base)) {
+                    error("Symbol location is relative to '%s', "
+                          "which can't be mapped to the memory image!\n",
+                          shnames == NULL
+                              ? NULL
+                              : (sections[sym_shndx].sh_name + shnames));
+                    goto clean_mapped_exe;
+                }
+                u32 s = sym_base + syms[sym_ndx].st_value;
+                log("S = 0x%x\n", s);
+                switch (ELF32_R_TYPE(rela->r_info)) {
+                case R_RISCV_HI20: {
+                    u32 result = s + rela->r_addend;
+
+                    u32 *insn_to_patch = memory + patch_base + rela->r_offset;
+                    log("Before patch: 0x%08x\n", *insn_to_patch);
+                    *insn_to_patch |= result & ~((1ul << 20) - 1);
+                    log("After patch: 0x%08x\n", *insn_to_patch);
+
+                }
+
+                break;
+
+                default:
+                    error("Unknown relocation %u, refusing to execute\n",
+                          ELF32_R_TYPE(rela->r_info));
+                    code = ENOEXEC;
+                    goto clean_mapped_exe;
+                }
+            }
+        }
+    }
 
     // Set protections
     for (struct page_descr *page = pages.head; page != NULL;
@@ -279,12 +370,19 @@ int loader_read_elf(int fd, struct loaded_exe *_Nonnull exe) {
         if (mprotect(memory + page->offset_from_mmap, page->size, prot) != 0) {
             perror("mprotect");
             code = errno;
-            goto clean_pages_list;
+            goto clean_mapped_exe;
         }
     }
 
     exe->mem = memory;
     exe->mem_count = full_memory_image_size;
+
+    log("Finished loading image from fd = %u\n", fd);
+
+    goto clean_pages_list;
+
+clean_mapped_exe:
+    munmap(memory, full_memory_image_size);
 
 clean_pages_list:
     destroy_page_list(&pages);
@@ -296,6 +394,28 @@ clean_mapped:
     munmap(as.begin, file_size);
 clean_none:
     return code;
+}
+
+// TODO: this *will* be slow for multiple relocations. Cache this with a table
+// section index <-> lazy-loaded result (or error)
+static bool find_offset_for_section(Elf32_Shdr const *section,
+                                    struct loadable_segments_list segms,
+                                    u32 *result) {
+    for (struct loadable_segment *segm = segms.head; segm != NULL;
+         segm = segm->next) {
+        u32 virt_start = segm->phdr->p_vaddr;
+        u32 virt_end = segm->phdr->p_vaddr + segm->phdr->p_memsz;
+        // I'm not taking the section size into account; should I?
+        // It doesn't really make sense to have a section outside the segment,
+        // since sections have to be fully contained inside segments.
+        if (section->sh_addr >= virt_start && section->sh_addr < virt_end) {
+            size_t res = segm->mem_offset + (section->sh_addr - virt_start);
+            assert(res < UINT32_MAX);
+            *result = res;
+            return true;
+        }
+    }
+    return false;
 }
 
 static struct loadable_segment *
