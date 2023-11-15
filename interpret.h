@@ -6,6 +6,6 @@
 #define SAM_INTERPRET_H
 #include <stdint.h>
 
-void interpret(void const *memory, uint32_t entrypoint);
+void interpret(void *memory, uint32_t entrypoint);
 
 #endif // SAM_INTERPRET_H

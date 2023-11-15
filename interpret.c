@@ -31,7 +31,7 @@ static uint32_t read_upper_immediate(uint32_t raw) {
 
 static int32_t bit_cast_i32(uint32_t v) { return *(int32_t *)&v; }
 
-void interpret(void const *memory, uint32_t entrypoint) {
+void interpret(void *memory, uint32_t entrypoint) {
     struct rv32i cpu = {0};
 
     uint32_t pc = entrypoint;
@@ -46,8 +46,8 @@ void interpret(void const *memory, uint32_t entrypoint) {
             abort();
         }
         as.raw = *(uint32_t *)(__builtin_assume_aligned(insn_ptr, 4));
-        printf("insn: %x\n", as.raw);
-        printf("opcode: %s\n", opcode_names[as.insn.unknown.opcode]);
+        log("insn: 0x%08x\n", as.raw);
+        log("opcode: %s\n", opcode_names[as.insn.unknown.opcode]);
         switch (as.insn.unknown.opcode) {
         case op_lui:
             // x[rd] = sext(immediate[31:12] << 12)
@@ -62,8 +62,9 @@ void interpret(void const *memory, uint32_t entrypoint) {
             switch ((enum insn_imm_func)as.insn.i.funct3) {
             case imm_func_addi:
                 // x[rd] = x[rs1] + sext(immediate)
-                cpu.registers[as.insn.i.rd] = cpu.registers[as.insn.i.rs1] +
-                                              sext32_imm12(as.insn.i.imm_11_0);
+                cpu.registers[as.insn.i.rd] =
+                    bit_cast_i32(cpu.registers[as.insn.i.rs1]) +
+                    sext32_imm12(as.insn.i.imm_11_0);
                 break;
             case imm_func_slti:
                 // x[rd] = x[rs1] <s sext(immediate)
@@ -117,6 +118,22 @@ void interpret(void const *memory, uint32_t entrypoint) {
             }
             break;
         case op_load:
+            switch ((enum insn_load_func)as.insn.i.funct3) {
+            case load_func_lbu: {
+                i32 offset = *(i32 *)&cpu.registers[as.insn.i.rs1];
+                uint8_t const *mem_loc = memory + offset;
+                mem_loc += sext32_imm12(as.insn.i.imm_11_0);
+                cpu.registers[as.insn.i.rd] = *mem_loc;
+                break;
+            }
+            case load_func_lb:
+            case load_func_lh:
+            case load_func_lw:
+            case load_func_lhu:
+                assert(!"not implemented load");
+            }
+            break;
+
         case op_load_fp:
         case op_custom_0:
         case op_misc_mem:
