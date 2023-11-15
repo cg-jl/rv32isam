@@ -3,6 +3,7 @@
 #include "bfc/out.h"
 #include "common/types.h"
 #include <elf.h>
+#include <fcntl.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -24,7 +25,8 @@ static void asm_empty_beq(struct out *out, u8 rs1, u8 rs2);
 static void patch_beq(void *insn, i16 offset);
 static void asm_jal(struct out *out, u8 link_register, i32 pc_rel_off);
 static void asm_ecall(struct out *out);
-static void asm_addi(struct out *out, u8 dest, u8 a, i16 imm);
+static void asm_addi(struct out *out, u8 dest, u8 a, i16 imm_12);
+static void asm_lui(struct out *out, u8 dest, i32 imm_20);
 static void asm_lbu(struct out *out, u8 base, u8 dest, u16 offset);
 static void asm_sb(struct out *out, u8 base, u8 src, u16 offset);
 static void asm_or(struct out *out, u8 dest, u8 a, u8 b);
@@ -40,228 +42,24 @@ static void asm_or(struct out *out, u8 dest, u8 a, u8 b);
 #define a5 15
 #define a7 17
 
+struct rospan {
+    void const *ptr;
+    u32 len;
+};
+
 static void compile_stdin(struct out *insns);
+static void emit_elf(struct rospan insns);
 
 static u32 strtab_add(struct out *strtab, char const *name);
 
 int main(void) {
-    // set stdin to unbuffered so it doesn't ask line by line.
-    setvbuf(stdin, NULL, _IONBF, 0);
 
     struct out insns = {0};
-    struct out loop_begin_stack = {0};
 
     compile_stdin(&insns);
+    emit_elf((struct rospan){.ptr = insns.bytes, .len = insns.len});
 
-    // Write ELF
-    struct out elf = {0};
-
-    u32 page_size = sysconf(_SC_PAGESIZE);
-
-    u32 ehdr_offt = out_resv_index(&elf, sizeof(Elf32_Ehdr));
-    u32 text_segm = out_resv_index(&elf, sizeof(Elf32_Phdr));
-    u32 data_segm = out_resv_index(&elf, sizeof(Elf32_Phdr));
-
-    u32 text_shdr = out_resv_index(&elf, sizeof(Elf32_Shdr));
-    u32 data_shdr = out_resv_index(&elf, sizeof(Elf32_Shdr));
-    u32 rela_shdr = out_resv_index(&elf, sizeof(Elf32_Shdr));
-    u32 symtab_shdr = out_resv_index(&elf, sizeof(Elf32_Shdr));
-    u32 strtab_shdr = out_resv_index(&elf, sizeof(Elf32_Shdr));
-    u32 shstrtab_shdr = out_resv_index(&elf, sizeof(Elf32_Shdr));
-
-    u32 data_begin_virt = 0;
-    u32 insns_begin_virt = 3 * 1024;
-
-    u32 code_elf_begin = out_write_index(&elf, insns.bytes, insns.len);
-    struct out shstrtab = {0};
-
-    // finish text section
-    {
-        Elf32_Shdr *text = elf.bytes + text_shdr;
-        text->sh_name = strtab_add(&shstrtab, ".text");
-        text->sh_type = SHT_PROGBITS;
-        text->sh_flags = SHF_ALLOC | SHF_EXECINSTR;
-        text->sh_addr = insns_begin_virt;
-        text->sh_offset = code_elf_begin;
-        text->sh_size = insns.len;
-        text->sh_link = text->sh_info = 0;
-        text->sh_addralign = page_size;
-        text->sh_entsize = 0;
-    }
-    // write text segment. The code should be aligned to 4 bytes, and
-    // the virtual address is the start of the first segment.
-    {
-        Elf32_Phdr *text = elf.bytes + text_segm;
-        text->p_type = PT_LOAD;
-        text->p_offset = code_elf_begin;
-        text->p_vaddr = insns_begin_virt;
-        text->p_paddr = text->p_vaddr;
-        text->p_filesz = insns.len;
-        text->p_memsz = insns.len;
-        text->p_flags = PF_R | PF_X;
-        text->p_align = 4;
-    }
-
-    // finish a lazy data section that really doesn't do anything. it only
-    // exists so that the symbol for _bf_data can refer to a section.
-    {
-        Elf32_Shdr *data = elf.bytes + data_shdr;
-        data->sh_name = strtab_add(&shstrtab, ".data");
-        data->sh_type = SHT_NOBITS;
-        data->sh_flags = SHF_ALLOC | SHF_WRITE;
-        data->sh_addr = data_begin_virt;
-        data->sh_offset = code_elf_begin + insns.len;
-        data->sh_size = 0;
-        data->sh_link = data->sh_info = 0;
-        data->sh_addralign = page_size;
-        data->sh_entsize = 0;
-    }
-
-    // finish data segment. This declares 3KiB of zeroes.
-    {
-        Elf32_Phdr *data = elf.bytes + data_segm;
-        data->p_type = PT_LOAD;
-        // it's not in the file, but it would be here.
-        data->p_offset = code_elf_begin + insns.len;
-        data->p_vaddr = data_begin_virt;
-        data->p_paddr = data->p_vaddr;
-        data->p_filesz = 0;
-        data->p_memsz = 3 * 1024;
-        data->p_flags = PF_R | PF_W;
-        data->p_align = page_size;
-    }
     out_destroy(&insns);
-
-    struct out strtab = {0};
-
-    u32 symtab_elf_begin = out_resv_index(&elf, sizeof(Elf32_Sym) * 2);
-    {
-        Elf32_Sym *syms = elf.bytes + symtab_elf_begin;
-        syms->st_name = strtab_add(&strtab, "_bf_data");
-        syms->st_value = 0;
-        syms->st_size = 3 * 1024;
-        syms->st_info = ELF32_ST_INFO(STB_LOCAL, STT_OBJECT);
-        syms->st_other = STV_DEFAULT;
-        syms->st_shndx = 1; // .data
-        // entrypoint
-        syms[1].st_name = strtab_add(&strtab, "_bf_entry");
-        syms[1].st_value = 0;
-        syms[1].st_size = insns.len;
-        syms[1].st_info = ELF32_ST_INFO(STB_LOCAL, STT_FUNC);
-        syms[1].st_other = STV_DEFAULT;
-        syms[1].st_shndx = 0; // .text
-    }
-
-    // finish symbol table
-    {
-        Elf32_Shdr *syms = elf.bytes + symtab_shdr;
-        syms->sh_name = strtab_add(&shstrtab, ".symtab");
-        syms->sh_type = SHT_SYMTAB;
-        syms->sh_flags = 0;
-        syms->sh_addr = 0;
-        syms->sh_offset = symtab_elf_begin;
-        syms->sh_size = 2 * sizeof(Elf32_Sym);
-        syms->sh_info = syms->sh_link = 4; // .strtab
-        syms->sh_addralign = 1;
-        syms->sh_entsize = sizeof(Elf32_Sym);
-    }
-
-    // finish string table, which was only used for the symbol table.
-    {
-        u32 strtab_elf_begin = out_write_index(&elf, strtab.bytes, strtab.len);
-        Elf32_Shdr *str = elf.bytes + strtab_shdr;
-        str->sh_name = strtab_add(&shstrtab, ".strtab");
-        str->sh_type = SHT_STRTAB;
-        str->sh_flags = SHF_STRINGS;
-        str->sh_addr = 0;
-        str->sh_offset = strtab_elf_begin;
-        str->sh_size = strtab.len;
-        str->sh_link = str->sh_info = 0;
-        str->sh_addralign = 1;
-        str->sh_entsize = 1;
-    }
-    out_destroy(&strtab);
-
-    u32 rela_offset = out_resv_index(&elf, sizeof(Elf32_Rela));
-    {
-        Elf32_Rela *rela = elf.bytes + rela_offset;
-        // virtual address of storage unit affected by relocation: the first
-        // instruction.
-        rela->r_offset = insns_begin_virt + 0;
-        // Symbol 0 is the only symbol we have and it's
-        // the entrypoint symbol.
-        rela->r_info = ELF32_R_INFO(0, R_RISCV_LO12_I);
-
-        // S + A, where A == 0.
-        rela->r_addend = 0;
-    }
-
-    // finish relocation table
-    {
-        Elf32_Shdr *rela = elf.bytes + rela_shdr;
-        rela->sh_name = strtab_add(&shstrtab, ".rela.data");
-        rela->sh_type = SHT_RELA;
-        rela->sh_flags = 0;
-        rela->sh_addr = 0;
-        rela->sh_offset = rela_offset;
-        rela->sh_size = sizeof(Elf32_Rela);
-        rela->sh_link = 3; // link to symbol table
-        rela->sh_info = 0;
-        rela->sh_addralign = 0;
-        rela->sh_entsize = sizeof(Elf32_Rela);
-    }
-
-    // finish shstrtab
-    {
-        // ensure we add the name to the table before copying the data.
-        u32 name_index = strtab_add(&shstrtab, ".shstrtab");
-        u32 shstrtab_elf_begin =
-            out_write_index(&elf, shstrtab.bytes, shstrtab.len);
-        Elf32_Shdr *shstr = elf.bytes + shstrtab_shdr;
-        shstr->sh_name = name_index;
-        shstr->sh_type = SHT_STRTAB;
-        ;
-        shstr->sh_flags = SHF_STRINGS;
-        shstr->sh_addr = 0;
-        shstr->sh_size = shstrtab.len;
-        shstr->sh_offset = shstrtab_elf_begin;
-        shstr->sh_link = shstr->sh_info = 0;
-        shstr->sh_addralign = 1;
-        shstr->sh_entsize = 1;
-
-        out_destroy(&shstrtab);
-    }
-
-    // finish ELF header
-    Elf32_Ehdr *eh = elf.bytes + ehdr_offt;
-
-    memcpy(eh->e_ident + 1, "ELF", 3);
-    eh->e_ident[EI_MAG0] = 0x7f;
-
-    eh->e_ident[EI_CLASS] = ELFCLASS32;
-    eh->e_ident[EI_DATA] = ELFDATA2LSB;
-    eh->e_ident[EI_VERSION] = EV_CURRENT;
-    eh->e_ident[EI_OSABI] = ELFOSABI_SYSV;
-    eh->e_ident[EI_ABIVERSION] = 0;
-    memset(&eh->e_ident[EI_PAD], 0, EI_NIDENT - EI_PAD);
-    eh->e_type = ET_EXEC;
-    eh->e_machine = EM_RISCV;
-    eh->e_version = EV_CURRENT;
-    eh->e_flags = 0;
-    eh->e_phoff = text_segm;
-    eh->e_shoff = text_shdr;
-    eh->e_phnum = 2;
-    eh->e_shnum = 6;
-    eh->e_ehsize = sizeof(*eh);
-    eh->e_shentsize = sizeof(Elf32_Shdr);
-    eh->e_phentsize = sizeof(Elf32_Phdr);
-    eh->e_shstrndx = 5;
-
-    eh->e_entry = insns_begin_virt;
-
-    // Write ELF image to output
-    write(STDOUT_FILENO, elf.bytes, elf.len);
-    out_destroy(&elf);
 }
 
 static void compile_stdin(struct out *insns) {
@@ -273,6 +71,7 @@ static void compile_stdin(struct out *insns) {
     // Load the code address for the data segment, which has 3KiB
     // FIXME: This should be some sort of `lui` + `addi` mix, since addi is
     // restricted to 12-bit immediates.
+    asm_lui(insns, s1, zero);
     asm_addi(insns, s1, zero, 0);
 
     struct loop_info {
@@ -282,15 +81,15 @@ static void compile_stdin(struct out *insns) {
 
 #define push_loop(chk, beq)                                                    \
     {                                                                          \
-        struct loop_info *info = out_resv(insns, sizeof(struct loop_info));    \
+        struct loop_info *info = out_resv(&loop_begin_stack, sizeof(*info));   \
         info->check_offset = chk;                                              \
         info->beq_offset = beq;                                                \
     }
 #define pop_loop(loc)                                                          \
     {                                                                          \
         loop_begin_stack.len -= sizeof(struct loop_info);                      \
-        loc = *(struct loop_info *)(loop_begin_stack.len +                     \
-                                    loop_begin_stack.bytes);                   \
+        loc = *(struct loop_info *)(loop_begin_stack.bytes +                   \
+                                    loop_begin_stack.len);                     \
     }
 #define load_cell(dest) asm_lbu(insns, s1, dest, 0)
 #define store_cell(src) asm_sb(insns, s1, src, 0)
@@ -374,6 +173,11 @@ static void compile_stdin(struct out *insns) {
         }
     }
 
+    // exit(0)
+    asm_addi(insns, a7, zero, 93);
+    asm_addi(insns, a0, zero, 0);
+    asm_ecall(insns);
+
 #undef store_cell
 #undef load_cell
 #undef pop_loop
@@ -415,6 +219,257 @@ static u32 pop(struct out *out) {
 
 static void push(struct out *out, u32 val) { out_write_u32lsb(out, val); }
 #define mask(nbits) ((1 << (nbits)) - 1)
+
+// elf emitting
+static void emit_elf(struct rospan insns) {
+    struct out elf = {0};
+    u32 page_size = sysconf(_SC_PAGESIZE);
+
+    out_resv_index(&elf, sizeof(Elf32_Ehdr));
+
+#define ehdr ((Elf32_Ehdr *)elf.bytes)
+
+    u32 segment_count = 0;
+    u32 data_segm = segment_count++;
+    u32 text_segm = segment_count++;
+    u32 phoff = out_resv_index(&elf, sizeof(Elf32_Phdr) * segment_count);
+
+    // segments & sections defined as macros since `elf.bytes` might
+    // change, hence the binding isn't recomputed.
+#define segments ((Elf32_Phdr *)(elf.bytes + phoff))
+
+    u32 section_count = 0;
+    u32 null_shdr = section_count++;
+    u32 data_shdr = section_count++;
+    u32 text_shdr = section_count++;
+    u32 rela_shdr = section_count++;
+    u32 symtab_shdr = section_count++;
+    u32 strtab_shdr = section_count++;
+    u32 shstrtab_shdr = section_count++;
+    u32 shoff = out_resv_index(&elf, sizeof(Elf32_Shdr) * section_count);
+
+#define sections ((Elf32_Shdr *)(elf.bytes + shoff))
+    // Now that all headers are reserved, we can assign offsets directly
+    // when copying data to the finel file.
+
+    // segment layout: <data> <instructions>
+    u32 data_begin_virt = 0;
+    u32 insns_begin_virt = data_begin_virt + 3 * 1024ul;
+
+    u32 insns_begin_elf = out_write_index(&elf, insns.ptr, insns.len);
+
+    struct out shstrtab = {0};
+    {
+        {
+            sections[null_shdr] = (Elf32_Shdr){0};
+            sections[null_shdr].sh_name = strtab_add(&shstrtab, "");
+        }
+        // .text: segment & section
+        {
+            sections[text_shdr].sh_name = strtab_add(&shstrtab, ".text");
+            sections[text_shdr].sh_type = SHT_PROGBITS;
+            sections[text_shdr].sh_flags = SHF_ALLOC | SHF_EXECINSTR;
+            sections[text_shdr].sh_addr = insns_begin_virt;
+            sections[text_shdr].sh_offset = insns_begin_elf;
+            sections[text_shdr].sh_size = insns.len;
+            sections[text_shdr].sh_link = sections[text_shdr].sh_info = 0;
+            sections[text_shdr].sh_addralign = page_size;
+            sections[text_shdr].sh_entsize = 0;
+
+            segments[text_segm].p_type = PT_LOAD;
+            segments[text_segm].p_offset = insns_begin_elf;
+            segments[text_segm].p_vaddr = insns_begin_virt;
+            segments[text_segm].p_paddr = segments[text_segm].p_vaddr;
+            segments[text_segm].p_filesz = insns.len;
+            segments[text_segm].p_memsz = insns.len;
+            segments[text_segm].p_flags = PF_R | PF_X;
+            segments[text_segm].p_align = 4;
+        }
+
+        // .data: section & segment
+        {
+            sections[data_shdr].sh_name = strtab_add(&shstrtab, ".data");
+            sections[data_shdr].sh_type = SHT_NOBITS;
+            sections[data_shdr].sh_flags = SHF_ALLOC | SHF_WRITE;
+            sections[data_shdr].sh_addr = data_begin_virt;
+            sections[data_shdr].sh_offset = insns_begin_elf;
+            sections[data_shdr].sh_size = 3 * 1024;
+            sections[data_shdr].sh_link = sections[data_shdr].sh_info = 0;
+            sections[data_shdr].sh_addralign = page_size;
+            sections[data_shdr].sh_entsize = 0;
+
+            segments[data_segm].p_type = PT_LOAD;
+            // It's not in the file, but it would come here, after the
+            // instructions.
+            segments[data_segm].p_offset = insns_begin_elf + insns.len;
+            segments[data_segm].p_vaddr = data_begin_virt;
+            segments[data_segm].p_paddr = segments[data_segm].p_vaddr;
+            segments[data_segm].p_memsz = 3 * 1024;
+            segments[data_segm].p_filesz = 0;
+            segments[data_segm].p_flags = PF_R | PF_W;
+            segments[data_segm].p_align = page_size;
+        }
+#undef segments
+
+        // Emit relocation for the stack start
+        struct out strtab = {0};
+        {
+            u32 sym_count = 0;
+
+            // NOTE: The order of symbols matters:
+            // - local
+            // - weak
+            // - global
+
+            struct out symtab = {0};
+#define resv_sym() (out_resv(&symtab, sizeof(Elf32_Sym)), sym_count++)
+#define syms ((Elf32_Sym *)symtab.bytes)
+            {
+
+                // create symbol for use in the relocations for the data
+                // segment.
+                u32 data_sym = resv_sym();
+                u32 data_sym_ndx = sym_count - 1;
+                syms[data_sym].st_name = strtab_add(&strtab, "_bf_data");
+                syms[data_sym].st_value = 0;
+                syms[data_sym].st_size = 3 * 1024;
+                syms[data_sym].st_info = ELF32_ST_INFO(STB_LOCAL, STT_OBJECT);
+                syms[data_sym].st_other = STV_DEFAULT;
+                syms[data_sym].st_shndx = text_shdr;
+
+                u32 rela_size = 2 * sizeof(Elf32_Rela);
+                u32 rela_offt = out_resv_index(&elf, rela_size);
+                {
+                    Elf32_Rela *lui = elf.bytes + rela_offt;
+                    Elf32_Rela *addi = lui + 1;
+                    // lui s1, <data address>.hi20
+                    lui->r_offset = insns_begin_virt + 0;
+                    lui->r_info = ELF32_R_INFO(data_sym_ndx, R_RISCV_HI20);
+                    lui->r_addend = 0;
+
+                    // addi s1, <data address>.lo12
+                    addi->r_offset = lui->r_offset + 4;
+                    addi->r_info = ELF32_R_INFO(data_sym_ndx, R_RISCV_HI20);
+                    addi->r_addend = 0;
+                }
+
+                // finish relocation table
+                sections[rela_shdr].sh_name =
+                    strtab_add(&shstrtab, ".rela.text");
+                sections[rela_shdr].sh_type = SHT_RELA;
+                sections[rela_shdr].sh_flags = 0;
+                sections[rela_shdr].sh_addr = 0;
+                sections[rela_shdr].sh_offset = rela_offt;
+                sections[rela_shdr].sh_size = rela_size;
+                sections[rela_shdr].sh_link = symtab_shdr;
+                sections[rela_shdr].sh_info = 0;
+                sections[rela_shdr].sh_addralign = 0;
+                sections[rela_shdr].sh_entsize = sizeof(Elf32_Rela);
+            }
+
+            // entrypoint symbol so that it can be disassembled
+            u32 entry_sym = resv_sym();
+            syms[entry_sym].st_name = strtab_add(&strtab, "_bf_entry");
+            syms[entry_sym].st_value = 0;
+            syms[entry_sym].st_size = insns.len;
+            syms[entry_sym].st_info = ELF32_ST_INFO(STB_LOCAL, STT_FUNC);
+            syms[entry_sym].st_other = STV_DEFAULT;
+            syms[entry_sym].st_shndx = text_shdr;
+
+#undef syms
+#undef resv_sym
+
+            // finish symbol table
+            u32 symtab_elf_begin =
+                out_write_index(&elf, symtab.bytes, symtab.len);
+            sections[symtab_shdr].sh_name = strtab_add(&shstrtab, ".symtab");
+            sections[symtab_shdr].sh_type = SHT_SYMTAB;
+            sections[symtab_shdr].sh_flags = 0;
+            sections[symtab_shdr].sh_addr = 0;
+            sections[symtab_shdr].sh_offset = symtab_elf_begin;
+            sections[symtab_shdr].sh_size = symtab.len;
+            sections[symtab_shdr].sh_addralign = 1;
+            sections[symtab_shdr].sh_link = strtab_shdr;
+            // All of our symbols are local.
+            sections[symtab_shdr].sh_info = sym_count;
+            sections[symtab_shdr].sh_entsize = sizeof(Elf32_Sym);
+            out_destroy(&symtab);
+        }
+
+        // finish string table, which was only used for the symbol table.
+        u32 strtab_elf_begin = out_write_index(&elf, strtab.bytes, strtab.len);
+        sections[strtab_shdr].sh_name = strtab_add(&shstrtab, ".strtab");
+        sections[strtab_shdr].sh_type = SHT_STRTAB;
+        sections[strtab_shdr].sh_flags = SHF_STRINGS;
+        sections[strtab_shdr].sh_addr = 0;
+        sections[strtab_shdr].sh_offset = strtab_elf_begin;
+        sections[strtab_shdr].sh_size = strtab.len;
+        sections[strtab_shdr].sh_addralign = 1;
+        sections[strtab_shdr].sh_link = 0;
+        sections[strtab_shdr].sh_info = 0;
+        sections[strtab_shdr].sh_entsize = 1;
+
+        out_destroy(&strtab);
+    }
+
+    // finish section header string table.
+    sections[shstrtab_shdr].sh_name = strtab_add(&shstrtab, ".shstrtab");
+    sections[shstrtab_shdr].sh_type = SHT_STRTAB;
+    sections[shstrtab_shdr].sh_flags = SHF_STRINGS;
+    sections[shstrtab_shdr].sh_addr = 0;
+    sections[shstrtab_shdr].sh_offset =
+        out_write_index(&elf, shstrtab.bytes, shstrtab.len);
+    sections[shstrtab_shdr].sh_addralign = 1;
+    sections[shstrtab_shdr].sh_link = 0;
+    sections[shstrtab_shdr].sh_info = 0;
+    sections[shstrtab_shdr].sh_size = shstrtab.len;
+    sections[shstrtab_shdr].sh_entsize = 1;
+    out_destroy(&shstrtab);
+
+#undef sections
+
+    // finish ELF file
+    memcpy(ehdr->e_ident + 1, "ELF", 3);
+    ehdr->e_ident[EI_MAG0] = 0x7f;
+
+    ehdr->e_ident[EI_CLASS] = ELFCLASS32;
+    ehdr->e_ident[EI_DATA] = ELFDATA2LSB;
+    ehdr->e_ident[EI_VERSION] = EV_CURRENT;
+    ehdr->e_ident[EI_OSABI] = ELFOSABI_SYSV;
+    ehdr->e_ident[EI_ABIVERSION] = 0;
+    memset(ehdr->e_ident + EI_PAD, 0, EI_NIDENT - EI_PAD);
+    ehdr->e_type = ET_EXEC;
+    ehdr->e_machine = EM_RISCV;
+    ehdr->e_version = EV_CURRENT;
+    ehdr->e_flags = 0;
+    ehdr->e_phnum = segment_count;
+    ehdr->e_phoff = phoff;
+    ehdr->e_phentsize = sizeof(Elf32_Phdr);
+    ehdr->e_shnum = section_count;
+    ehdr->e_shoff = shoff;
+    ehdr->e_shentsize = sizeof(Elf32_Shdr);
+    ehdr->e_ehsize = sizeof(*ehdr);
+    ehdr->e_shstrndx = shstrtab_shdr;
+    ehdr->e_entry = insns_begin_virt;
+
+    int outfd = open("a.out", O_RDWR | O_TRUNC | O_CREAT, 0755);
+
+    if (outfd == -1) {
+        perror("open");
+        goto clean_out;
+    }
+
+    if (write(outfd, elf.bytes, elf.len) != elf.len) {
+        perror("write");
+        goto clean_file;
+    }
+
+clean_file:
+    close(outfd);
+
+clean_out:
+    out_destroy(&elf);
+}
 
 // asm_*
 
@@ -490,6 +545,17 @@ static void asm_addi(struct out *out, u8 dest, u8 a, i16 imm) {
     addi->rd = dest;
     addi->rs1 = a;
     addi->imm = *(u16 *)&imm;
+}
+
+static void asm_lui(struct out *out, u8 dest, i32 imm_20) {
+    struct lui {
+        u8 tag : 7;
+        u8 rd : 5;
+        i32 imm : 20;
+    } __attribute__((packed)) *lui = out_resv(out, 4);
+    lui->tag = 0b0110111;
+    lui->rd = dest;
+    lui->imm = imm_20;
 }
 
 static void asm_ecall(struct out *out) {
