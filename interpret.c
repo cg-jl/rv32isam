@@ -19,7 +19,7 @@ static uint32_t sext32_imm32(uint32_t x) { return x; }
 static uint32_t sext32_imm12(uint16_t x_12) {
     uint32_t x = x_12;
     // find the 12th bit and extend it to 0 or all 1s
-    uint32_t mask = (x >> 11) - 1;
+    uint32_t mask = ~((x >> 11) - 1);
     // only interested in the first (32 - 12 = 20) bits
     mask &= 0xfffff000;
     return x_12 | mask;
