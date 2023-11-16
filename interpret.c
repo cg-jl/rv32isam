@@ -36,10 +36,7 @@ void interpret(void *memory, uint32_t entrypoint) {
 
     uint32_t pc = entrypoint;
     for (;; pc += 4) {
-        union {
-            struct insn insn;
-            uint32_t raw;
-        } as;
+        union insn as;
         uint32_t const *insn_ptr = memory + pc;
         if (__builtin_expect((uintptr_t)insn_ptr & 0b11, 0)) {
             fputs("fatal: instructions MUST be aligned to 4 bytes\n", stderr);
@@ -47,67 +44,65 @@ void interpret(void *memory, uint32_t entrypoint) {
         }
         as.raw = *(uint32_t *)(__builtin_assume_aligned(insn_ptr, 4));
         log("insn: 0x%08x\n", as.raw);
-        log("opcode: %s\n", opcode_names[as.insn.unknown.opcode]);
-        switch (as.insn.unknown.opcode) {
+        log("opcode: %s\n", opcode_names[as.unknown.opcode]);
+        switch (as.unknown.opcode) {
         case op_lui:
             // x[rd] = sext(immediate[31:12] << 12)
             // sext will be identity; since we're 32-bit.
-            cpu.registers[as.insn.u.rd] = read_upper_immediate(as.raw);
+            cpu.registers[as.u.rd] = read_upper_immediate(as.raw);
             break;
         case op_auipc:
             // x[rd] = pc + sext(immediate[31:12] << 12)
-            cpu.registers[as.insn.u.rd] = pc + read_upper_immediate(as.raw);
+            cpu.registers[as.u.rd] = pc + read_upper_immediate(as.raw);
             break;
         case op_imm:
-            switch ((enum insn_imm_func)as.insn.i.funct3) {
+            switch ((enum insn_imm_func)as.i.funct3) {
             case imm_func_addi:
                 // x[rd] = x[rs1] + sext(immediate)
-                cpu.registers[as.insn.i.rd] =
-                    bit_cast_i32(cpu.registers[as.insn.i.rs1]) +
-                    sext32_imm12(as.insn.i.imm_11_0);
+                cpu.registers[as.i.rd] = bit_cast_i32(cpu.registers[as.i.rs1]) +
+                                         sext32_imm12(as.i.imm_11_0);
                 break;
             case imm_func_slti:
                 // x[rd] = x[rs1] <s sext(immediate)
                 {
-                    int32_t signed_xrs1 =
-                        bit_cast_i32(cpu.registers[as.insn.i.rs1]);
+                    int32_t signed_xrs1 = bit_cast_i32(cpu.registers[as.i.rs1]);
                     int32_t signed_imm =
-                        bit_cast_i32(sext32_imm12(as.insn.i.imm_11_0));
+                        bit_cast_i32(sext32_imm12(as.i.imm_11_0));
                     // "cheat" by using an already implemented signed comparison
-                    cpu.registers[as.insn.i.rd] = signed_xrs1 < signed_imm;
+                    cpu.registers[as.i.rd] = signed_xrs1 < signed_imm;
                 }
                 break;
             case imm_func_sltiu:
                 // x[rd] = x[rs1] <u sext(immediate)
                 // "cheat" by using an already implemented unsigned comparison
-                cpu.registers[as.insn.i.rd] = cpu.registers[as.insn.i.rs1] <
-                                              sext32_imm12(as.insn.i.imm_11_0);
+                cpu.registers[as.i.rd] =
+                    cpu.registers[as.i.rs1] < sext32_imm12(as.i.imm_11_0);
                 break;
             case imm_func_xori: // sorry :(
                 // x[rd] = x[rs1] ^ sext(immediate)
-                cpu.registers[as.insn.i.rd] = cpu.registers[as.insn.i.rs1] ^
-                                              sext32_imm12(as.insn.i.imm_11_0);
+                cpu.registers[as.i.rd] =
+                    cpu.registers[as.i.rs1] ^ sext32_imm12(as.i.imm_11_0);
                 break;
             case imm_func_ori:
                 // x[rd] = x[rs1] | sext(immediate)
-                cpu.registers[as.insn.i.rd] = cpu.registers[as.insn.i.rs1] |
-                                              sext32_imm12(as.insn.i.imm_11_0);
+                cpu.registers[as.i.rd] =
+                    cpu.registers[as.i.rs1] | sext32_imm12(as.i.imm_11_0);
                 break;
             case imm_func_andi:
                 // x[rd] = x[rs1] & sext(immediate)
-                cpu.registers[as.insn.i.rd] = cpu.registers[as.insn.i.rs1] &
-                                              sext32_imm12(as.insn.i.imm_11_0);
+                cpu.registers[as.i.rd] =
+                    cpu.registers[as.i.rs1] & sext32_imm12(as.i.imm_11_0);
                 break;
             case imm_func_slli:
                 // x[rd] = x[rs1] << shamt
                 // shamt is lower five bits, since anything else would wrap
                 // around.
-                cpu.registers[as.insn.i.rd] = cpu.registers[as.insn.i.rs1]
-                                              << (as.insn.i.imm_11_0 & 0x1f);
+                cpu.registers[as.i.rd] = cpu.registers[as.i.rs1]
+                                         << (as.i.imm_11_0 & 0x1f);
                 break;
             case imm_func_srli: {
-                u8 shift_count = as.insn.i.imm_11_0 & ((1 << 5) - 1);
-                u32 rest = as.insn.i.imm_11_0 & ~((1 << 5) - 1);
+                u8 shift_count = as.i.imm_11_0 & ((1 << 5) - 1);
+                u32 rest = as.i.imm_11_0 & ~((1 << 5) - 1);
                 switch ((enum shift_func)rest) {
                 case shift_func_srli:
                 case shift_func_srai:
@@ -118,12 +113,12 @@ void interpret(void *memory, uint32_t entrypoint) {
             }
             break;
         case op_load:
-            switch ((enum insn_load_func)as.insn.i.funct3) {
+            switch ((enum insn_load_func)as.i.funct3) {
             case load_func_lbu: {
-                i32 offset = *(i32 *)&cpu.registers[as.insn.i.rs1];
+                i32 offset = *(i32 *)&cpu.registers[as.i.rs1];
                 uint8_t const *mem_loc = memory + offset;
-                mem_loc += sext32_imm12(as.insn.i.imm_11_0);
-                cpu.registers[as.insn.i.rd] = *mem_loc;
+                mem_loc += sext32_imm12(as.i.imm_11_0);
+                cpu.registers[as.i.rd] = *mem_loc;
                 break;
             }
             case load_func_lb:

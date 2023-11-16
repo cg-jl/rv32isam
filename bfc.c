@@ -463,92 +463,63 @@ clean_out:
 
 // asm_*
 
-struct beq {
-    u8 tag : 7;
-    u8 offset_lower_5 : 5;
-    u8 fixed_000 : 3;
-    u8 rs1 : 5;
-    u8 rs2 : 5;
-    u8 offset_upper_7 : 7;
-} __attribute__((packed));
-
 static void asm_empty_beq(struct out *out, u8 rs1, u8 rs2) {
-    struct beq *beq = out_resv(out, 4);
-    beq->tag = 0b1100011;
-    beq->rs1 = rs1;
-    beq->rs2 = rs2;
-    beq->fixed_000 = 0;
-    beq->offset_upper_7 = 0;
-    beq->offset_lower_5 = 0;
+    union insn *beq = out_resv(out, 4);
+    beq->b.opcode = op_branch;
+    beq->b.funct3 = branch_func_beq;
+    beq->b.rs1 = rs1;
+    beq->b.rs2 = rs2;
 }
 static void patch_beq(void *insn, i16 offset) {
-    u16 offset_bits = *(u16 *)&offset & mask(12);
-    struct beq *beq = (struct beq *)insn;
-    beq->offset_lower_5 = offset_bits & mask(5);
-    beq->offset_upper_7 = offset_bits >> 5;
+    union insn *beq = insn;
+
+    beq->b.imm_4_1 = offset >> 1;
+    beq->b.imm_10_5 = offset >> 5;
+    beq->b.imm_11 = offset >> 11;
+    beq->b.imm_12 = offset >> 12;
 }
 
 static void asm_lbu(struct out *out, u8 base, u8 dest, u16 offset) {
-    struct lbu {
-        u8 tag : 7;
-        u8 rd : 5;
-        u8 fixed_100 : 3;
-        u8 rs1 : 5;
-        u16 offset : 12;
-    } __attribute__((packed)) *lbu = out_resv(out, 4);
-    lbu->tag = 0b0000011;
-    lbu->fixed_100 = 0b100;
-    lbu->rs1 = base;
-    lbu->rd = dest;
-    lbu->offset = offset;
+    union insn *lbu = out_resv(out, 4);
+    lbu->i.opcode = op_load;
+    lbu->i.funct3 = load_func_lbu;
+    lbu->i.rs1 = base;
+    lbu->i.rd = dest;
+    lbu->i.imm_11_0 = offset;
 }
 static void asm_sb(struct out *out, u8 base, u8 src, u16 offset) {
-    struct sb {
-        u8 tag : 7;
-        u8 offset_lower_5 : 5;
-        u8 fixed_000 : 3;
-        u8 rs1 : 5;
-        u8 rs2 : 5;
-        u8 offset_hi_7 : 7;
-    } __attribute__((packed)) *sbu = out_resv(out, 4);
+    union insn *sbu = out_resv(out, 4);
 
-    sbu->fixed_000 = 0b000;
-    sbu->tag = 0b100011;
-    sbu->offset_hi_7 = (offset >> 5) & mask(7);
-    sbu->offset_lower_5 = offset & mask(5);
-    sbu->rs1 = base;
-    sbu->rs2 = src;
+    sbu->s.rs2 = src;
+    sbu->s.rs1 = base;
+    sbu->s.imm_11_5 = offset & mask(5);
+    sbu->s.imm_4_0 = (offset >> 5) & mask(7);
+    sbu->s.funct3 = store_func_sb;
+    sbu->s.opcode = op_store;
 }
 
 static void asm_addi(struct out *out, u8 dest, u8 a, i16 imm) {
-    struct addi {
-        u8 tag : 7;
-        u8 rd : 5;
-        u8 fixed_000 : 3;
-        u8 rs1 : 5;
-        u16 imm : 12;
-    } __attribute__((packed)) *addi = out_resv(out, 4);
 
-    addi->tag = 0b0010011;
-    addi->fixed_000 = 0b000;
+    union insn *addi = out_resv(out, 4);
 
-    addi->rd = dest;
-    addi->rs1 = a;
-    addi->imm = *(u16 *)&imm;
+    addi->i.opcode = op_imm;
+    addi->i.funct3 = imm_func_addi;
+    addi->i.rd = dest;
+
+    addi->i.rs1 = a;
+    addi->i.imm_11_0 = imm;
 }
 
 static void asm_lui(struct out *out, u8 dest, i32 imm_20) {
-    struct lui {
-        u8 tag : 7;
-        u8 rd : 5;
-        i32 imm : 20;
-    } __attribute__((packed)) *lui = out_resv(out, 4);
-    lui->tag = 0b0110111;
-    lui->rd = dest;
-    lui->imm = imm_20;
+
+    union insn *lui = out_resv(out, 4);
+    lui->u.opcode = op_lui;
+    lui->u.rd = dest;
+    lui->u.imm_31_12 = imm_20;
 }
 
 static void asm_ecall(struct out *out) {
     // ecall is all rv_zeroes except for the tag.
-    *(u32 *)out_resv(out, 4) = 0x00000073;
+    *(union insn *)out_resv(out, 4) =
+        (union insn){.unknown = {.opcode = op_system, .unk_rest = 0}};
 }
