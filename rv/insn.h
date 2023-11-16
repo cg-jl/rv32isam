@@ -213,70 +213,70 @@ enum fence_flags {
 // The middle bits imm[10:1] stay fixed from the instruction, and the lowest bit
 // in S format (inst[7]) encodes a high-order bit in B format.
 
-struct insn {
-    union {
-        struct {
-            enum insn_op opcode : 7;
-            u32 unk_rest : 25;
-        } unknown;
-        // opcode is always op_misc_mem and funct3 is always FENCE.
-        // everything that is not
-        struct {
-            enum insn_op opcode : 7;
-            u8 rd : 5;
-            u8 funct3 : 3;
-            u8 rs1 : 3;
-            enum fence_flags successor : 4;
-            enum fence_flags predecessor : 4;
-            u8 always_zero : 4;
-        } __attribute__((packed)) fence;
-        struct {
-            enum insn_op opcode : 7;
-            u8 rd : 5;
-            u8 funct3 : 3;
-            u8 rs1 : 5;
-            u8 rs2 : 5;
-            u8 funct7 : 7;
-        } __attribute__((packed)) r;
-        struct {
-            enum insn_op opcode : 7;
-            u8 rd : 5;
-            u8 funct3 : 3;
-            u8 rs1 : 5;
-            u32 imm_11_0 : 12;
-        } __attribute__((packed)) i;
-        struct {
-            enum insn_op opcode : 7;
-            u8 imm_4_0 : 5;
-            u8 funct3 : 3;
-            u8 rs1 : 5;
-            u8 rs2 : 5;
-            u8 imm_11_5 : 7;
-        } __attribute__((packed)) s;
-        struct {
-            enum insn_op opcode : 7;
-            u8 imm_11 : 1;
-            u8 imm_4_1 : 4;
-            u8 funct3 : 3;
-            u8 rs1 : 5;
-            u8 rs2 : 5;
-            u8 imm_10_5 : 6;
-            u8 imm_12 : 1;
-        } __attribute__((packed)) b;
-        struct {
-            enum insn_op opcode : 7;
-            u8 rd : 5;
-            u32 imm_31_12 : 20;
-        } __attribute__((packed)) u;
-        struct {
-            enum insn_op opcode : 7;
-            u8 rd : 5;
-            u8 imm_19_12 : 8;
-            u8 imm_11 : 1;
-            u16 imm_10_1 : 10;
-            u8 imm_20 : 1;
-        } __attribute__((packed)) j;
-    } __attribute__((packed));
+union insn {
+    struct {
+        enum insn_op opcode : 7;
+        u32 unk_rest : 25;
+    } unknown;
+
+    // opcode is always op_misc_mem and funct3 is always FENCE.
+    // everything that is not
+    struct {
+        enum insn_op opcode : 7;
+        u8 rd : 5;
+        u8 funct3 : 3;
+        u8 rs1 : 3;
+        enum fence_flags successor : 4;
+        enum fence_flags predecessor : 4;
+        u8 always_zero : 4;
+    } __attribute__((packed)) fence;
+    struct {
+        enum insn_op opcode : 7;
+        u8 rd : 5;
+        u8 funct3 : 3;
+        u8 rs1 : 5;
+        u8 rs2 : 5;
+        u8 funct7 : 7;
+    } __attribute__((packed)) r;
+    struct {
+        enum insn_op opcode : 7;
+        u8 rd : 5;
+        u8 funct3 : 3;
+        u8 rs1 : 5;
+        u32 imm_11_0 : 12;
+    } __attribute__((packed)) i;
+    struct {
+        enum insn_op opcode : 7;
+        u8 imm_4_0 : 5;
+        u8 funct3 : 3;
+        u8 rs1 : 5;
+        u8 rs2 : 5;
+        u8 imm_11_5 : 7;
+    } __attribute__((packed)) s;
+    struct {
+        enum insn_op opcode : 7;
+        u8 imm_11 : 1;
+        u8 imm_4_1 : 4;
+        u8 funct3 : 3;
+        u8 rs1 : 5;
+        u8 rs2 : 5;
+        u8 imm_10_5 : 6;
+        u8 imm_12 : 1;
+    } __attribute__((packed)) b;
+    struct {
+        enum insn_op opcode : 7;
+        u8 rd : 5;
+        u32 imm_31_12 : 20;
+    } __attribute__((packed)) u;
+    struct {
+        enum insn_op opcode : 7;
+        u8 rd : 5;
+        u8 imm_19_12 : 8;
+        u8 imm_11 : 1;
+        u16 imm_10_1 : 10;
+        u8 imm_20 : 1;
+    } __attribute__((packed)) j;
+    u32 raw;
 } __attribute__((packed));
 
 // vim:ft=c
