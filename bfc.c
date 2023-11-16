@@ -2,6 +2,7 @@
 // The code has a tape of 3K to work with.
 #include "bfc/out.h"
 #include "common/types.h"
+#include "emu/insn.h"
 #include <elf.h>
 #include <fcntl.h>
 #include <stddef.h>
@@ -30,17 +31,6 @@ static void asm_lui(struct out *out, u8 dest, i32 imm_20);
 static void asm_lbu(struct out *out, u8 base, u8 dest, u16 offset);
 static void asm_sb(struct out *out, u8 base, u8 src, u16 offset);
 static void asm_or(struct out *out, u8 dest, u8 a, u8 b);
-
-#define t0 5
-#define s1 9
-#define zero 0
-#define a0 10
-#define a1 11
-#define a2 12
-#define a3 13
-#define a4 14
-#define a5 15
-#define a7 17
 
 struct rospan {
     void const *ptr;
@@ -71,8 +61,8 @@ static void compile_stdin(struct out *insns) {
     // Load the code address for the data segment, which has 3KiB
     // FIXME: This should be some sort of `lui` + `addi` mix, since addi is
     // restricted to 12-bit immediates.
-    asm_lui(insns, s1, zero);
-    asm_addi(insns, s1, zero, 0);
+    asm_lui(insns, rv_s1, rv_zero);
+    asm_addi(insns, rv_s1, rv_zero, 0);
 
     struct loop_info {
         u32 check_offset;
@@ -91,8 +81,8 @@ static void compile_stdin(struct out *insns) {
         loc = *(struct loop_info *)(loop_begin_stack.bytes +                   \
                                     loop_begin_stack.len);                     \
     }
-#define load_cell(dest) asm_lbu(insns, s1, dest, 0)
-#define store_cell(src) asm_sb(insns, s1, src, 0)
+#define load_cell(dest) asm_lbu(insns, rv_s1, dest, 0)
+#define store_cell(src) asm_sb(insns, rv_s1, src, 0)
 
     {
         char c;
@@ -102,9 +92,9 @@ static void compile_stdin(struct out *insns) {
                 u32 check_offset = insns->len;
                 // if [cell] != 0 goto loop_end (will be patched when finding
                 // ']')
-                load_cell(t0);
+                load_cell(rv_t0);
                 push_loop(check_offset, insns->len);
-                asm_empty_beq(insns, t0, zero);
+                asm_empty_beq(insns, rv_t0, rv_zero);
                 break;
             }
             case ']': {
@@ -128,7 +118,7 @@ static void compile_stdin(struct out *insns) {
                         i32 offset : 20;
                     } __attribute__((packed)) *jal = insns->bytes + jal_offset;
                     jal->tag = 0b1101111;
-                    jal->rd = zero;
+                    jal->rd = rv_zero;
                     // XXX: I don't know if this will interpret it correctly.
                     jal->offset = -dist_from_chk;
                 }
@@ -136,46 +126,46 @@ static void compile_stdin(struct out *insns) {
                 break;
             }
             case '+':
-                load_cell(t0);
-                asm_addi(insns, t0, t0, 1);
-                store_cell(t0);
+                load_cell(rv_t0);
+                asm_addi(insns, rv_t0, rv_t0, 1);
+                store_cell(rv_t0);
                 break;
             case '-':
-                load_cell(t0);
-                asm_addi(insns, t0, t0, -1);
-                store_cell(t0);
+                load_cell(rv_t0);
+                asm_addi(insns, rv_t0, rv_t0, -1);
+                store_cell(rv_t0);
                 break;
             case '.':
-                // write(1, s1, 1);
-                asm_addi(insns, a7, zero, 64);
-                asm_addi(insns, a0, zero, 1);
-                asm_or(insns, a0, zero, s1);
-                asm_addi(insns, a2, zero, 1);
+                // write(1, rv_s1, 1);
+                asm_addi(insns, rv_a7, rv_zero, 64);
+                asm_addi(insns, rv_a0, rv_zero, 1);
+                asm_or(insns, rv_a0, rv_zero, rv_s1);
+                asm_addi(insns, rv_a2, rv_zero, 1);
                 asm_ecall(insns);
                 // we don't care about the return value.
                 break;
             case ',':
-                // read(0, s1, 1);
-                asm_addi(insns, a7, zero, 63);
-                asm_addi(insns, a0, zero, 1);
-                asm_or(insns, a0, zero, s1);
-                asm_addi(insns, a2, zero, 1);
+                // read(0, rv_s1, 1);
+                asm_addi(insns, rv_a7, rv_zero, 63);
+                asm_addi(insns, rv_a0, rv_zero, 1);
+                asm_or(insns, rv_a0, rv_zero, rv_s1);
+                asm_addi(insns, rv_a2, rv_zero, 1);
                 asm_ecall(insns);
                 // we don't care about the return value.
                 break;
             case '>':
-                asm_addi(insns, s1, s1, 1);
+                asm_addi(insns, rv_s1, rv_s1, 1);
                 break;
             case '<':
-                asm_addi(insns, s1, s1, -1);
+                asm_addi(insns, rv_s1, rv_s1, -1);
                 break;
             }
         }
     }
 
     // exit(0)
-    asm_addi(insns, a7, zero, 93);
-    asm_addi(insns, a0, zero, 0);
+    asm_addi(insns, rv_a7, rv_zero, 93);
+    asm_addi(insns, rv_a0, rv_zero, 0);
     asm_ecall(insns);
 
 #undef store_cell
@@ -342,12 +332,12 @@ static void emit_elf(struct rospan insns) {
                 {
                     Elf32_Rela *lui = elf.bytes + rela_offt;
                     Elf32_Rela *addi = lui + 1;
-                    // lui s1, <data address>.hi20
+                    // lui rv_s1, <data address>.hi20
                     lui->r_offset = 0;
                     lui->r_info = ELF32_R_INFO(data_sym_ndx, R_RISCV_HI20);
                     lui->r_addend = 0;
 
-                    // addi s1, <data address>.lo12
+                    // addi rv_s1, <data address>.lo12
                     addi->r_offset = 4;
                     addi->r_info = ELF32_R_INFO(data_sym_ndx, R_RISCV_HI20);
                     addi->r_addend = 0;
@@ -559,6 +549,6 @@ static void asm_lui(struct out *out, u8 dest, i32 imm_20) {
 }
 
 static void asm_ecall(struct out *out) {
-    // ecall is all zeroes except for the tag.
+    // ecall is all rv_zeroes except for the tag.
     *(u32 *)out_resv(out, 4) = 0x00000073;
 }

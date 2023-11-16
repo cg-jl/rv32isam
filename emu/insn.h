@@ -9,6 +9,43 @@
 // RISC-V Specification:
 // https://riscv.org/wp-content/uploads/2017/05/riscv-spec-v2.2.pdf
 
+// https://en.wikichip.org/wiki/risc-v/registers
+enum rv32_abi_reg {
+    rv_zero = 0,
+    rv_ra = 1,
+    rv_sp = 2,
+    rv_gp = 3,
+    rv_tp = 4,
+    rv_t0 = 5,
+    rv_t1 = 6,
+    rv_t2 = 7,
+    rv_s0 = 8,
+    rv_fp = 8,
+    rv_s1 = 9,
+    rv_a0 = 10,
+    rv_a1 = 11,
+    rv_a2 = 12,
+    rv_a3 = 13,
+    rv_a4 = 14,
+    rv_a5 = 15,
+    rv_a6 = 16,
+    rv_a7 = 17,
+    rv_s2 = 18,
+    rv_s3 = 19,
+    rv_s4 = 20,
+    rv_s5 = 21,
+    rv_s6 = 22,
+    rv_s7 = 23,
+    rv_s8 = 24,
+    rv_s9 = 25,
+    rv_s10 = 26,
+    rv_s11 = 27,
+    rv_t3 = 28,
+    rv_t4 = 29,
+    rv_t5 = 30,
+    rv_t6 = 31,
+};
+
 // RISC-V Specification, Table 19.1: RISC-V base opcode map.
 enum insn_op {
     // I-type.
