@@ -4,8 +4,8 @@
 
 #include "interpret.h"
 #include "common/log.h"
-#include "emu/dasm.h"
-#include "emu/insn.h"
+#include "rv/dasm.h"
+#include "rv/insn.h"
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>

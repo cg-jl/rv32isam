@@ -2,7 +2,7 @@
 // The code has a tape of 3K to work with.
 #include "bfc/out.h"
 #include "common/types.h"
-#include "emu/insn.h"
+#include "rv/insn.h"
 #include <elf.h>
 #include <fcntl.h>
 #include <stddef.h>

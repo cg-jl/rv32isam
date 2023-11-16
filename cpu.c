@@ -1,6 +1,6 @@
-#include "emu/insn.h"
 #include "interpret.h"
 #include "loader.h"
+#include "rv/insn.h"
 #include <assert.h>
 #include <elf.h>
 #include <elfutils/elf-knowledge.h>

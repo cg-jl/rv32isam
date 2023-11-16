@@ -14,8 +14,8 @@ add_executable(cpu
     loader.h
     interpret.c
     interpret.h
-    emu/dasm.c
-    emu/insn.h)
+    rv/dasm.c
+    rv/insn.h)
 
 add_executable(bfc 
     bfc.c
