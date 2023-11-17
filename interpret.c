@@ -7,44 +7,60 @@
 #include "rv/dasm.h"
 #include "rv/insn.h"
 #include <assert.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 struct rv32i {
     uint32_t registers[32];
 };
+static i32 bit_cast_i32(u32 v) { return *(i32 *)&v; }
 
-static uint32_t sext32_imm32(uint32_t x) { return x; }
+static i32 sext32_imm32(u32 x) { return bit_cast_i32(x); }
 
-static uint32_t sext32_imm12(uint16_t x_12) {
-    uint32_t x = x_12;
-    // find the 12th bit and extend it to 0 or all 1s
-    uint32_t mask = ~((x >> 11) - 1);
-    // only interested in the first (32 - 12 = 20) bits
-    mask &= 0xfffff000;
-    return x_12 | mask;
+static i32 sext32_generic(u32 v) {
+    if (v == 0)
+        return 0;
+    u32 fill_count = __builtin_clz(v);
+    u32 bit_pos = 32 - fill_count;
+    u32 mask = (1 << (fill_count - 1)) << (bit_pos - 1);
+    return v | mask;
 }
 
-static uint32_t read_upper_immediate(uint32_t raw) {
+static i32 sext32_imm12(u16 x_12) {
+    u32 x = x_12;
+    // find the 12th bit and extend it to 0 or all 1s
+    u32 mask = ~((x >> 11) - 1);
+    // only interested in the first (32 - 12 = 20) bits
+    mask &= 0xfffff000;
+    return bit_cast_i32(x_12 | mask);
+}
+
+static u32 read_upper_immediate(u32 raw) {
     return sext32_imm32(raw & 0xfffff000);
 }
 
-static int32_t bit_cast_i32(uint32_t v) { return *(int32_t *)&v; }
-
-void interpret(void *memory, uint32_t entrypoint) {
+void interpret(void *memory, u32 entrypoint) {
     struct rv32i cpu = {0};
 
-    uint32_t pc = entrypoint;
+    u32 pc = entrypoint;
     for (;; pc += 4) {
         union insn as;
-        uint32_t const *insn_ptr = memory + pc;
+        u32 const *insn_ptr = memory + pc;
         if (__builtin_expect((uintptr_t)insn_ptr & 0b11, 0)) {
             fputs("fatal: instructions MUST be aligned to 4 bytes\n", stderr);
             abort();
         }
-        as.raw = *(uint32_t *)(__builtin_assume_aligned(insn_ptr, 4));
-        log("insn: 0x%08x\n", as.raw);
-        log("opcode: %s\n", opcode_names[as.unknown.opcode]);
+        as.raw = *(u32 *)(__builtin_assume_aligned(insn_ptr, 4));
+        log("insn @ 0x%08x: (0x%08x) ", pc, as.raw);
+        dasm(stderr, as.raw);
+        fputc('\n', stderr);
+        if (as.raw == 0) {
+            error("Refusing to execute: illegal all 0s instruction\n");
+            __builtin_trap();
+            return;
+        }
         switch (as.unknown.opcode) {
         case op_lui:
             // x[rd] = sext(immediate[31:12] << 12)
@@ -112,13 +128,13 @@ void interpret(void *memory, uint32_t entrypoint) {
             }
             }
             break;
-        case op_load:
+        case op_load: {
+            i32 offset = *(i32 *)&cpu.registers[as.i.rs1];
+            void const *mem_loc = memory + offset;
+            mem_loc += sext32_imm12(as.i.imm_11_0);
             switch ((enum insn_load_func)as.i.funct3) {
             case load_func_lbu: {
-                i32 offset = *(i32 *)&cpu.registers[as.i.rs1];
-                uint8_t const *mem_loc = memory + offset;
-                mem_loc += sext32_imm12(as.i.imm_11_0);
-                cpu.registers[as.i.rd] = *mem_loc;
+                cpu.registers[as.i.rd] = *(uint8_t *)mem_loc;
                 break;
             }
             case load_func_lb:
@@ -127,17 +143,74 @@ void interpret(void *memory, uint32_t entrypoint) {
             case load_func_lhu:
                 assert(!"not implemented load");
             }
-            break;
+        } break;
 
+        case op_store: {
+            i32 offset =
+                sext32_imm12((u32)as.s.imm_4_0 | (u32)as.s.imm_11_5 << 5);
+
+            void *mem_loc =
+                memory + offset + bit_cast_i32(cpu.registers[as.s.rs1]);
+
+            switch ((enum insn_store_func)as.s.funct3) {
+            case store_func_sb:
+                *(uint8_t *)mem_loc = cpu.registers[as.s.rs2];
+                break;
+            case store_func_sh:
+            case store_func_sw:
+                assert(!"not implemented store");
+            }
+
+        } break;
+        case op_branch: {
+
+            i32 offset =
+                2 * sext32_generic((u32)as.b.imm_11 << 11 |
+                                   (u32)as.b.imm_12 << 12 |
+                                   (u32)as.s.imm_11_5 << 5 | (u32)as.s.imm_4_0);
+
+            u32 a = cpu.registers[as.b.rs1];
+            u32 b = cpu.registers[as.b.rs2];
+
+            switch ((enum insn_branch_func)as.b.funct3) {
+            case branch_func_beq:
+                if (a == b)
+                    pc += offset - 4;
+                break;
+            case branch_func_bne:
+            case branch_func_blt:
+            case branch_func_bge:
+            case branch_func_bltu:
+            case branch_func_bgeu:
+                assert(!"not implemented branch");
+            }
+        } break;
+
+        case op_op: {
+            switch ((enum insn_op_funct3)as.r.funct3) {
+            case op_funct3_or:
+                cpu.registers[as.r.rd] =
+                    cpu.registers[as.r.rs1] | cpu.registers[as.r.rs2];
+                break;
+            case op_funct3_add:
+            case op_funct3_sll:
+            case op_funct3_slt:
+            case op_funct3_sltu:
+            case op_funct3_xor:
+            case op_funct3_srl:
+            case op_funct3_and:
+                assert(!"not implemented r-type op.");
+            }
+        }; break;
+
+        case op_system:
         case op_load_fp:
         case op_custom_0:
         case op_misc_mem:
         case op_imm_32:
-        case op_store:
         case op_store_fp:
         case op_custom_1:
         case op_amo:
-        case op_op:
         case op_op_32:
         case op_madd:
         case op_msub:
@@ -145,9 +218,7 @@ void interpret(void *memory, uint32_t entrypoint) {
         case op_nmadd:
         case op_fp:
         case op_custom2_rv128:
-        case op_branch:
         case op_jalr:
-        case op_system:
         case op_custom3_rv128:
             assert(!"not implemented");
         }

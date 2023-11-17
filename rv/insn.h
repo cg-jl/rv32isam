@@ -57,11 +57,14 @@ enum insn_op {
     op_imm = 0b0010011,
     op_auipc = 0b0010111,
     op_imm_32 = 0b0011011,
+    // S-type. Look at funct3 as an enum insn_store_func
     op_store = 0b0100011,
     op_store_fp = 0b0100111,
     op_custom_1 = 0b0101011,
     op_amo = 0b0101111,
+    // R-type. func7 is op_funct7 and func3 is insn_op_funct3
     op_op = 0b0110011,
+    // U-type.
     op_lui = 0b0110111,
     op_op_32 = 0b0111011,
     op_madd = 0b1000011,
@@ -74,6 +77,9 @@ enum insn_op {
     op_branch = 0b1100011,
     op_jalr = 0b1100111,
     // reserved: 0b1101011
+
+
+    // ecall/ebreak is encoded via a I-type. Imm_11_0 is encoded by ecall_imm
     op_system = 0b1110011,
     // reserved: 0b1110111
     op_custom3_rv128 = 0b1111011,
@@ -245,6 +251,7 @@ union insn {
         u8 rs1 : 5;
         u32 imm_11_0 : 12;
     } __attribute__((packed)) i;
+
     struct {
         enum insn_op opcode : 7;
         u8 imm_4_0 : 5;
@@ -262,7 +269,10 @@ union insn {
         u8 rs2 : 5;
         u8 imm_10_5 : 6;
         u8 imm_12 : 1;
-    } __attribute__((packed)) b;
+    } __attribute__((packed))
+    // B-type.
+    // The final value is a multiple of two bytes.
+    b;
     struct {
         enum insn_op opcode : 7;
         u8 rd : 5;
