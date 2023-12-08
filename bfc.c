@@ -246,7 +246,13 @@ static void emit_elf(struct rospan insns) {
     u32 data_begin_virt = 0;
     u32 insns_begin_virt = data_begin_virt + 3 * 1024ul;
 
+    // align to page size
+    assert(__builtin_popcountll(page_size) == 1);
+    insns_begin_virt += page_size - 1;
+    insns_begin_virt &= ~(page_size - 1);
+
     u32 insns_begin_elf = out_write_index(&elf, insns.ptr, insns.len);
+    u32 data_begin_elf = insns_begin_elf + insns.len;
 
     struct out shstrtab = {0};
     {
@@ -273,7 +279,7 @@ static void emit_elf(struct rospan insns) {
             segments[text_segm].p_filesz = insns.len;
             segments[text_segm].p_memsz = insns.len;
             segments[text_segm].p_flags = PF_R | PF_X;
-            segments[text_segm].p_align = 4;
+            segments[text_segm].p_align = page_size;
         }
 
         // .data: section & segment
@@ -282,7 +288,7 @@ static void emit_elf(struct rospan insns) {
             sections[data_shdr].sh_type = SHT_NOBITS;
             sections[data_shdr].sh_flags = SHF_ALLOC | SHF_WRITE;
             sections[data_shdr].sh_addr = data_begin_virt;
-            sections[data_shdr].sh_offset = insns_begin_elf;
+            sections[data_shdr].sh_offset = data_begin_elf;
             sections[data_shdr].sh_size = 3 * 1024;
             sections[data_shdr].sh_link = sections[data_shdr].sh_info = 0;
             sections[data_shdr].sh_addralign = page_size;
@@ -401,6 +407,9 @@ static void emit_elf(struct rospan insns) {
 
         out_destroy(&strtab);
     }
+
+    sections[riscv_attr_shdr].sh_name = strtab_add(&shstrtab, ".riscv.attributes");
+    sections[riscv_attr_shdr].sh_type = SHT_RISCV_ATTRIBUTES;
 
     // finish section header string table.
     sections[shstrtab_shdr].sh_name = strtab_add(&shstrtab, ".shstrtab");
