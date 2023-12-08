@@ -11,3 +11,18 @@ void *out_resv(struct out *out, u32 count) {
     out->len += count;
     return addr;
 }
+
+void out_write_uleb128(struct out *out, u64 val) {
+
+    u32 const start = out->len;
+
+    do {
+        // Make it an arithmetic shift.
+        int8_t b = val & 0x7F;
+        val >>= 7;
+        if (val != 0) {
+            b |= 0x80;
+        }
+        out_writeb(out, *(u8 *)b);
+    } while (val != 0);
+}

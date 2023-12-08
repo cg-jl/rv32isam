@@ -14,6 +14,7 @@ struct out {
 };
 
 void *out_resv(struct out *out, u32 count);
+void out_write_uleb128(struct out *out, u64 val);
 
 static inline void out_destroy(struct out *out) {
     if (out->cap != 0)
@@ -22,6 +23,16 @@ static inline void out_destroy(struct out *out) {
 
 static inline void out_write(struct out *out, void const *src, u32 count) {
     memcpy(out_resv(out, count), src, count);
+}
+static inline void out_writeb(struct out *out, u8 byte) {
+    *(u8 *)out_resv(out, 1) = byte;
+}
+static inline void out_write_u32le(struct out *out, u32 val) {
+    *(u32 *)out_resv(out, 4) = val;
+}
+static inline void out_write_cstr(struct out *out, char const *cstr) {
+    for (; *cstr; ++cstr)
+        out_writeb(out, *(u8 const *)cstr);
 }
 
 static inline u32 out_write_index(struct out *out, void const *src, u32 count) {
