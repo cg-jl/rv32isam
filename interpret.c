@@ -37,7 +37,7 @@ void interpret(void *memory, u32 entrypoint) {
         }
         as.raw = *(u32 *)(__builtin_assume_aligned(insn_ptr, 4));
         log("insn @ 0x%08x: (0x%08x) ", pc, as.raw);
-        dasm(stderr, as.raw);
+        dasm(stderr, as.raw, pc);
         fputc('\n', stderr);
         if (as.raw == 0) {
             error("Refusing to execute: illegal all 0s instruction\n");

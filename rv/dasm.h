@@ -6,6 +6,6 @@
 
 extern char const *opcode_names[];
 
-void dasm(FILE *out, u32 raw);
+void dasm(FILE *out, u32 raw, u32 insn_offset);
 
 // vim:ft=c

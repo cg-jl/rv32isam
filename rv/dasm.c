@@ -7,7 +7,7 @@
 
 static char const *abi_reg_names[];
 
-void dasm(FILE *out, u32 raw) {
+void dasm(FILE *out, u32 raw, u32 insn_offset) {
 
     if (__builtin_expect(raw == 0, 0)) {
         fputs("<illegal>", out);
@@ -22,7 +22,7 @@ void dasm(FILE *out, u32 raw) {
     switch (as.unknown.opcode) {
     case op_jal: {
         fprintf(out, "jal %s, 0x%x", abi_reg_names[as.j.rd],
-                read_j_immediate(as.raw));
+                insn_offset + bit_cast_i32(read_j_immediate(as.raw)));
     } break;
     case op_auipc: {
         fprintf(out, "auipc 0x%x", read_upper_immediate(as.raw));
@@ -45,9 +45,9 @@ void dasm(FILE *out, u32 raw) {
         };
 
         i32 imm = bit_cast_i32(read_b_immediate(as.raw));
-        fprintf(out, "%s %s, %s, %s0x%x", branch_names[as.b.funct3],
+        fprintf(out, "%s %s, %s, 0x%x", branch_names[as.b.funct3],
                 abi_reg_names[as.b.rs1], abi_reg_names[as.b.rs2],
-                imm < 0 ? "-" : "", imm);
+                insn_offset + imm);
         break;
     }
     case op_lui:
