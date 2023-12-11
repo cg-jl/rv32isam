@@ -391,6 +391,7 @@ int loader_read_elf(int fd, struct loaded_exe *_Nonnull exe) {
 
     exe->mem = memory;
     exe->mem_count = full_memory_image_size;
+    exe->entrypoint = as.elf->e_entry - starting_virtual_address;
 
     log("Finished loading image from fd = %u\n", fd);
 

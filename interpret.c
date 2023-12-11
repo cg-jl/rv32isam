@@ -44,6 +44,9 @@ static u32 read_upper_immediate(u32 raw) {
 void interpret(void *memory, u32 entrypoint) {
     struct rv32i cpu = {0};
 
+    log("Begin execution. Memory @ %p, Entrypoint @ 0x%x\n", memory,
+        entrypoint);
+
     u32 pc = entrypoint;
     for (;; pc += 4) {
         union insn as;
