@@ -7,6 +7,9 @@
 static inline u32 align_upwards(u32 val, u32 align) {
     return (val + (align - 1)) & ~(align - 1);
 }
+static inline u64 align_upwards64(u64 val, u64 align) {
+    return (val + (align - 1)) & ~(align - 1);
+}
 
 // Retuns the power of two that is >= `val`.
 static inline u32 next_po2(u32 val) {

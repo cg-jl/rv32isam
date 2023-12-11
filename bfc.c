@@ -3,6 +3,7 @@
 #include "bfc/out.h"
 #include "common/types.h"
 #include "rv/insn.h"
+#include <assert.h>
 #include <elf.h>
 #include <fcntl.h>
 #include <stddef.h>
@@ -38,16 +39,34 @@ struct rospan {
 };
 
 static void compile_stdin(struct out *insns);
+static void emit_raw(struct rospan raw);
 static void emit_elf(struct rospan insns);
 
 static u32 strtab_add(struct out *strtab, char const *name);
 
-int main(void) {
+int main(int argc, char const **argv) {
+
+    enum emit_mode { mode_elf, mode_raw } mode = mode_elf;
+
+    if (argc == 2 && strncmp(argv[1], "--raw", sizeof("--raw")) == 0) {
+        mode = mode_raw;
+    }
 
     struct out insns = {0};
 
     compile_stdin(&insns);
-    emit_elf((struct rospan){.ptr = insns.bytes, .len = insns.len});
+
+    struct rospan result =
+        (struct rospan){.ptr = insns.bytes, .len = insns.len};
+
+    switch (mode) {
+    case mode_elf:
+        emit_elf(result);
+        break;
+    case mode_raw:
+        emit_raw(result);
+        break;
+    }
 
     out_destroy(&insns);
 }
@@ -210,6 +229,8 @@ static u32 pop(struct out *out) {
 static void push(struct out *out, u32 val) { out_write_u32lsb(out, val); }
 #define mask(nbits) ((1 << (nbits)) - 1)
 
+static void emit_riscv_attributes(struct out *out);
+
 // elf emitting
 static void emit_elf(struct rospan insns) {
     struct out elf = {0};
@@ -222,6 +243,7 @@ static void emit_elf(struct rospan insns) {
     u32 segment_count = 0;
     u32 data_segm = segment_count++;
     u32 text_segm = segment_count++;
+    u32 riscv_attr_segm = segment_count++;
     u32 phoff = out_resv_index(&elf, sizeof(Elf32_Phdr) * segment_count);
 
     // segments & sections defined as macros since `elf.bytes` might
@@ -236,6 +258,7 @@ static void emit_elf(struct rospan insns) {
     u32 symtab_shdr = section_count++;
     u32 strtab_shdr = section_count++;
     u32 shstrtab_shdr = section_count++;
+    u32 riscv_attr_shdr = section_count++;
     u32 shoff = out_resv_index(&elf, sizeof(Elf32_Shdr) * section_count);
 
 #define sections ((Elf32_Shdr *)(elf.bytes + shoff))
@@ -243,7 +266,9 @@ static void emit_elf(struct rospan insns) {
     // when copying data to the finel file.
 
     // segment layout: <data> <instructions>
-    u32 data_begin_virt = 0;
+    // HACK: Ensure data begins at a mappable page. This is because QEMU
+    // does not
+    u32 data_begin_virt = 0x10000;
     u32 insns_begin_virt = data_begin_virt + 3 * 1024ul;
 
     // align to page size
@@ -305,6 +330,29 @@ static void emit_elf(struct rospan insns) {
             segments[data_segm].p_flags = PF_R | PF_W;
             segments[data_segm].p_align = page_size;
         }
+
+        {
+            u32 riscv_attr_begin = elf.len;
+            emit_riscv_attributes(&elf);
+            u32 riscv_attr_len = elf.len - riscv_attr_begin;
+
+            sections[riscv_attr_shdr] = (Elf32_Shdr){
+                .sh_name = strtab_add(&shstrtab, ".riscv.attributes"),
+                .sh_type = SHT_RISCV_ATTRIBUTES,
+                .sh_offset = riscv_attr_begin,
+                .sh_size = riscv_attr_len,
+                .sh_addralign = 1,
+            };
+
+            segments[riscv_attr_segm] = (Elf32_Phdr){
+                .p_type = PT_RISCV_ATTRIBUTES,
+                .p_offset = riscv_attr_begin,
+                .p_filesz = riscv_attr_len,
+                .p_flags = PF_R,
+                .p_align = 1,
+            };
+        }
+
 #undef segments
 
         // Emit relocation for the stack start
@@ -408,9 +456,6 @@ static void emit_elf(struct rospan insns) {
         out_destroy(&strtab);
     }
 
-    sections[riscv_attr_shdr].sh_name = strtab_add(&shstrtab, ".riscv.attributes");
-    sections[riscv_attr_shdr].sh_type = SHT_RISCV_ATTRIBUTES;
-
     // finish section header string table.
     sections[shstrtab_shdr].sh_name = strtab_add(&shstrtab, ".shstrtab");
     sections[shstrtab_shdr].sh_type = SHT_STRTAB;
@@ -451,23 +496,27 @@ static void emit_elf(struct rospan insns) {
     ehdr->e_shstrndx = shstrtab_shdr;
     ehdr->e_entry = insns_begin_virt;
 
+    emit_raw((struct rospan){.ptr = elf.bytes, .len = elf.len});
+
+clean_out:
+    out_destroy(&elf);
+}
+
+static void emit_raw(struct rospan bytes) {
     int outfd = open("a.out", O_RDWR | O_TRUNC | O_CREAT, 0755);
 
     if (outfd == -1) {
         perror("open");
-        goto clean_out;
+        return;
     }
 
-    if (write(outfd, elf.bytes, elf.len) != elf.len) {
+    if (write(outfd, bytes.ptr, bytes.len) != bytes.len) {
         perror("write");
         goto clean_file;
     }
 
 clean_file:
     close(outfd);
-
-clean_out:
-    out_destroy(&elf);
 }
 
 // asm_*
@@ -531,4 +580,10 @@ static void asm_ecall(struct out *out) {
     // ecall is all rv_zeroes except for the tag.
     *(union insn *)out_resv(out, 4) =
         (union insn){.unknown = {.opcode = op_system, .unk_rest = 0}};
+}
+
+static void emit_riscv_attributes(struct out *out) {
+
+    // HACK: We won't do this since QEMU does *not* requre it.
+    // TODO: fill out.
 }
