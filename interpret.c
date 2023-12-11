@@ -195,7 +195,16 @@ void interpret(void *memory, u32 entrypoint) {
                 cpu.registers[as.r.rd] =
                     cpu.registers[as.r.rs1] | cpu.registers[as.r.rs2];
                 break;
-            case op_funct3_add:
+            case op_funct3_add: {
+                u32 s1 = cpu.registers[as.r.rs1];
+                u32 s2 = cpu.registers[as.r.rs2];
+                printf("add");
+                if (as.r.funct7 == op_funct7_sub) {
+                    s2 = -s2;
+                }
+                cpu.registers[as.r.rd] = s1 + s2;
+                break;
+            }
             case op_funct3_sll:
             case op_funct3_slt:
             case op_funct3_sltu:
