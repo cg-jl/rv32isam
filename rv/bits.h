@@ -28,7 +28,41 @@ static u32 read_upper_immediate(u32 raw) {
     return sext32_imm32(raw & 0xfffff000);
 }
 
-static u32 recover_jal_bits(struct j_format j) {
-    return (u32)j.imm_11 << 11 | (u32)j.imm_20 << 20 | (u32)j.imm_10_1 << 1 |
-           (u32)j.imm_19_12 << 12;
+static u32 read_j_immediate(u32 raw) {
+    // — inst[31] — inst[19:12] inst[20] inst[30:25] inst[24:21] 0
+    union {
+        struct {
+            u32 zero : 1;
+            u32 inst_24_21 : 4;
+            u32 inst_30_25 : 6;
+            u32 inst_20 : 1;
+            u32 inst_19_12 : 8;
+            u32 inst_31 : 12;
+        } PACKED;
+        u32 raw;
+    } imm;
+
+    union {
+        struct {
+            u32 zero : 12;
+            u32 inst_19_12 : 8;
+            u32 inst_20 : 1;
+            u32 inst_24_21 : 4;
+            u32 inst_30_25 : 6;
+            u32 inst_31 : 1;
+        } PACKED;
+        u32 raw;
+    } extract;
+
+    extract.raw = raw;
+
+    imm.zero = 0;
+    imm.inst_19_12 = extract.inst_19_12;
+    imm.inst_20 = extract.inst_20;
+    imm.inst_24_21 = extract.inst_24_21;
+    imm.inst_30_25 = extract.inst_30_25;
+    // ensure all bits are set to the same bit to perform sign extension.
+    imm.inst_31 = 0ul - extract.inst_31;
+
+    return imm.raw;
 }
