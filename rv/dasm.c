@@ -42,7 +42,8 @@ void dasm(FILE *out, u32 raw, u32 insn_offset) {
         };
 
         fprintf(out, "%s %s, %d(%s)", func_names[as.i.funct3],
-                abi_reg_names[as.i.rd], as.i.imm_11_0, abi_reg_names[as.i.rs1]);
+                abi_reg_names[as.i.rd], bit_cast_i32(read_i_immediate(as.raw)),
+                abi_reg_names[as.i.rs1]);
     } break;
     case op_branch: {
         static char const *branch_names[] = {
