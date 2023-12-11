@@ -79,14 +79,17 @@ void dasm(FILE *out, u32 raw, u32 insn_offset) {
         case imm_func_ori:
         case imm_func_andi:
 
-            fprintf(out, "%s %s, %s, %d", imm_names[as.i.funct3],
+            fprintf(out, "%s %s, %s, 0x%x", imm_names[as.i.funct3],
                     abi_reg_names[as.i.rd], abi_reg_names[as.i.rs1],
-                    sext32_imm12(as.i.imm_11_0));
+                    read_shift_immediate(as.raw));
             break;
 
         case imm_func_slli:
+            fprintf(out, "slli %s, %s, 0x%x", abi_reg_names[as.i.rd],
+                    abi_reg_names[as.i.rs1], read_shift_immediate(as.raw));
+            break;
         case imm_func_srli:
-            assert(!"TODO: disassemble shift instructions");
+            assert(!"TODO: disassemble sr[la]i instructions");
             /* TODO: case imm_func_srai */
             break;
         }

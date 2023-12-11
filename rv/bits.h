@@ -136,3 +136,41 @@ static u32 read_s_immediate(u32 raw) {
 
     return imm.raw;
 }
+
+static u32 read_i_immediate(u32 raw) {
+    union {
+        struct {
+            u32 inst_20 : 1;
+            u32 inst_24_21 : 4;
+            u32 inst_30_25 : 6;
+            u32 inst_31 : 21;
+        } PACKED;
+        u32 raw;
+    } imm;
+
+    union {
+        struct {
+            u32 low_20 : 20;
+            u32 inst_20 : 1;
+            u32 inst_24_21 : 4;
+            u32 inst_30_25 : 6;
+            u32 inst_31 : 1;
+        } PACKED;
+        u32 raw;
+    } extract;
+
+    imm.raw = 0;
+    extract.raw = raw;
+
+    imm.inst_20 = extract.inst_20;
+    imm.inst_24_21 = extract.inst_24_21;
+    imm.inst_30_25 = extract.inst_30_25;
+    imm.inst_31 = 0ul - extract.inst_31;
+
+    return imm.raw;
+}
+
+static u32 read_shift_immediate(u32 raw) {
+    // lower 5 bits of the I-immediate field.
+    return read_i_immediate(raw) & 0x1f;
+}
