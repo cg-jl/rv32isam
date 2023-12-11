@@ -182,8 +182,14 @@ void interpret(void *memory, u32 entrypoint) {
             case store_func_sb:
                 *(uint8_t *)mem_loc = read_register(&cpu, as.s.rs2);
                 break;
-            case store_func_sh:
             case store_func_sw:
+                if ((uintptr_t)mem_loc % 4 != 0) {
+                    error("Refusing to execute: unaligned store");
+                    __builtin_trap();
+                }
+                *(u32 *)mem_loc = read_register(&cpu, as.s.rs2);
+                break;
+            case store_func_sh:
                 assert(!"not implemented store");
             }
 
@@ -211,9 +217,13 @@ void interpret(void *memory, u32 entrypoint) {
                     pc += offset - 4;
                 }
                 break;
+            case branch_func_bltu:
+                if (a < b) {
+                    pc += offset - 4;
+                }
+                break;
             case branch_func_blt:
             case branch_func_bge:
-            case branch_func_bltu:
                 assert(!"not implemented branch");
             }
         } break;
