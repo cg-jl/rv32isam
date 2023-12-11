@@ -45,6 +45,16 @@ void interpret(void *memory, u32 entrypoint) {
             return;
         }
         switch (as.unknown.opcode) {
+        case op_jal: {
+            u32 offt = read_j_immediate(as.raw);
+            u32 jump_pc = pc + offt;
+
+            write_register(&cpu, as.j.rd, pc + 4);
+
+            // ensure we don't mess the address by jumping too far.
+            pc = jump_pc - 4;
+
+        } break;
         case op_lui:
             // x[rd] = sext(immediate[31:12] << 12)
             // sext will be identity; since we're 32-bit.
