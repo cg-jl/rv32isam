@@ -2,11 +2,11 @@
 #include "../common/types.h"
 #include "insn.h"
 
-static i32 bit_cast_i32(u32 v) { return *(i32 *)&v; }
+static i32 __attribute_const__ bit_cast_i32(u32 v) { return *(i32 *)&v; }
 
-static i32 sext32_imm32(u32 x) { return bit_cast_i32(x); }
+static i32 __attribute_const__ sext32_imm32(u32 x) { return bit_cast_i32(x); }
 
-static i32 sext32_generic(u32 v) {
+static i32 __attribute_const__ sext32_generic(u32 v) {
     if (v == 0)
         return 0;
     u32 fill_count = __builtin_clz(v);
@@ -15,7 +15,7 @@ static i32 sext32_generic(u32 v) {
     return v | mask;
 }
 
-static i32 sext32_imm12(u16 x_12) {
+static i32 __attribute_const__ sext32_imm12(u16 x_12) {
     u32 x = x_12;
     // find the 12th bit and extend it to 0 or all 1s
     u32 mask = ~((x >> 11) - 1);
@@ -24,11 +24,11 @@ static i32 sext32_imm12(u16 x_12) {
     return bit_cast_i32(x_12 | mask);
 }
 
-static u32 read_upper_immediate(u32 raw) {
+static u32 __attribute_const__ read_upper_immediate(u32 raw) {
     return sext32_imm32(raw & 0xfffff000);
 }
 
-static u32 read_j_immediate(u32 raw) {
+static u32 __attribute_const__ read_j_immediate(u32 raw) {
     // — inst[31] — inst[19:12] inst[20] inst[30:25] inst[24:21] 0
     union {
         struct {
@@ -67,7 +67,7 @@ static u32 read_j_immediate(u32 raw) {
     return imm.raw;
 }
 
-static u32 read_b_immediate(u32 raw) {
+static u32 __attribute_const__ read_b_immediate(u32 raw) {
 
     union {
         struct {
@@ -104,7 +104,7 @@ static u32 read_b_immediate(u32 raw) {
     return imm.raw;
 }
 
-static u32 read_s_immediate(u32 raw) {
+static u32 read_s_immediate(u32 raw) __attribute_const__ {
     union {
         struct {
             u32 inst_7 : 1;
@@ -137,7 +137,7 @@ static u32 read_s_immediate(u32 raw) {
     return imm.raw;
 }
 
-static u32 read_i_immediate(u32 raw) {
+static u32 __attribute_const__ read_i_immediate(u32 raw) {
     union {
         struct {
             u32 inst_20 : 1;
@@ -170,7 +170,7 @@ static u32 read_i_immediate(u32 raw) {
     return imm.raw;
 }
 
-static u32 read_shift_immediate(u32 raw) {
+static u32 __attribute_const__ read_shift_immediate(u32 raw) {
     // lower 5 bits of the I-immediate field.
     return read_i_immediate(raw) & 0x1f;
 }
