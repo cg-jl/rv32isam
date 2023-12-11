@@ -1,6 +1,7 @@
 
 #pragma once
 
+#include "common/types.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -17,7 +18,8 @@ struct loaded_exe {
 
 int loader_read_elf(int fd, struct loaded_exe *_Nonnull exe);
 
-int loader_read_raw(int fd, struct loaded_exe *_Nonnull exe);
+int loader_read_raw(int fd, u32 data_segment_size,
+                    struct loaded_exe *_Nonnull exe);
 
 void loader_destroy_exe(struct loaded_exe *_Nonnull exe);
 

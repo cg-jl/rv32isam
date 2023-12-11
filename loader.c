@@ -1,4 +1,5 @@
 #include "loader.h"
+#include "common/bit_math.h"
 #include "common/log.h"
 #include "common/types.h"
 #include <assert.h>
@@ -15,21 +16,40 @@
 
 static int mmap_file(int fd, void **file, size_t *filesz);
 
-int loader_read_raw(int fd, struct loaded_exe *_Nonnull exe) {
+int loader_read_raw(int fd, u32 data_segment_count,
+                    struct loaded_exe *_Nonnull exe) {
+
     int code;
     if ((code = mmap_file(fd, &exe->mem, &exe->mem_count)) != 0)
         return code;
+
     exe->entrypoint = 0;
+    if (data_segment_count > 0) {
+        u32 page_size = sysconf(_SC_PAGESIZE);
+
+        u32 aligned_count = align_upwards(data_segment_count, page_size);
+
+        void *wanted_start_addr = exe->mem - aligned_count;
+
+        log("aligned count: %u\n", aligned_count);
+        log("expected start address: %p\n", wanted_start_addr);
+
+        if (mmap(wanted_start_addr, aligned_count, PROT_WRITE | PROT_READ,
+                 MAP_ANONYMOUS | MAP_FIXED_NOREPLACE | MAP_PRIVATE, -1,
+                 0) != wanted_start_addr) {
+            error("Could not create data segment: %s\n", strerror(errno));
+            return errno;
+        }
+        exe->mem = wanted_start_addr;
+        exe->entrypoint = aligned_count;
+    }
+
     return 0;
 }
 
 void loader_destroy_exe(struct loaded_exe *_Nonnull exe) {
     munmap(exe->mem, exe->mem_count);
 }
-
-struct something {
-    // now you want to work?
-};
 
 struct page_descr {
     struct page_descr *next;
@@ -69,12 +89,6 @@ static struct page_descr *add_page(struct page_descr_list *list, size_t offset,
                                    uint8_t flags);
 static void set_page_end(struct page_descr *descr, size_t end_offset);
 static void destroy_page_list(struct page_descr_list *list);
-
-// Aligns `val` to `align` by bumping it to the bigger aligned value.
-// If `val` as already aligned by `align`, this algorithm yields `val`.
-static uint64_t align_upwards(uint64_t val, uint64_t align) {
-    return (val + (align - 1)) & ~(align - 1);
-}
 
 static bool find_offset_for_section(Elf32_Shdr const *section,
                                     struct loadable_segments_list list,
@@ -213,11 +227,12 @@ int loader_read_elf(int fd, struct loaded_exe *_Nonnull exe) {
         // start at 2.
         if (segm->phdr->p_align >= 2) {
             next_segment_offset =
-                align_upwards(next_segment_offset, segm->phdr->p_align);
+                align_upwards64(next_segment_offset, segm->phdr->p_align);
         }
         // We're forced to make a new page, since we have to mprotect() that
         if (segm->phdr->p_flags != current_page->flags) {
-            next_segment_offset = align_upwards(next_segment_offset, page_size);
+            next_segment_offset =
+                align_upwards64(next_segment_offset, page_size);
             set_page_end(current_page, next_segment_offset);
             current_page =
                 add_page(&pages, next_segment_offset, segm->phdr->p_flags);
