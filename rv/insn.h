@@ -223,7 +223,7 @@ union insn {
     struct {
         enum insn_op opcode : 7;
         u32 unk_rest : 25;
-    } unknown;
+    } __attribute__((packed)) unknown;
 
     // opcode is always op_misc_mem and funct3 is always FENCE.
     // everything that is not
