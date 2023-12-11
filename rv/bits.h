@@ -104,7 +104,7 @@ static u32 __attribute_const__ read_b_immediate(u32 raw) {
     return imm.raw;
 }
 
-static u32 read_s_immediate(u32 raw) __attribute_const__ {
+static u32 __attribute_const__ read_s_immediate(u32 raw) {
     union {
         struct {
             u32 inst_7 : 1;
