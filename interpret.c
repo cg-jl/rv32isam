@@ -4,6 +4,8 @@
 
 #include "interpret.h"
 #include "common/log.h"
+#include "common/types.h"
+#include "rv/bits.h"
 #include "rv/dasm.h"
 #include "rv/insn.h"
 #include <assert.h>
@@ -15,31 +17,9 @@
 struct rv32i {
     uint32_t registers[32];
 };
-static i32 bit_cast_i32(u32 v) { return *(i32 *)&v; }
 
-static i32 sext32_imm32(u32 x) { return bit_cast_i32(x); }
-
-static i32 sext32_generic(u32 v) {
-    if (v == 0)
-        return 0;
-    u32 fill_count = __builtin_clz(v);
-    u32 bit_pos = 32 - fill_count;
-    u32 mask = (1 << (fill_count - 1)) << (bit_pos - 1);
-    return v | mask;
-}
-
-static i32 sext32_imm12(u16 x_12) {
-    u32 x = x_12;
-    // find the 12th bit and extend it to 0 or all 1s
-    u32 mask = ~((x >> 11) - 1);
-    // only interested in the first (32 - 12 = 20) bits
-    mask &= 0xfffff000;
-    return bit_cast_i32(x_12 | mask);
-}
-
-static u32 read_upper_immediate(u32 raw) {
-    return sext32_imm32(raw & 0xfffff000);
-}
+static void write_register(struct rv32i *cpu, u8 reg_index, u32 value);
+static u32 read_register(struct rv32i const *cpu, u8 reg_index);
 
 void interpret(void *memory, u32 entrypoint) {
     struct rv32i cpu = {0};
@@ -68,56 +48,63 @@ void interpret(void *memory, u32 entrypoint) {
         case op_lui:
             // x[rd] = sext(immediate[31:12] << 12)
             // sext will be identity; since we're 32-bit.
-            cpu.registers[as.u.rd] = read_upper_immediate(as.raw);
+            write_register(&cpu, as.u.rd, read_upper_immediate(as.raw));
             break;
         case op_auipc:
             // x[rd] = pc + sext(immediate[31:12] << 12)
-            cpu.registers[as.u.rd] = pc + read_upper_immediate(as.raw);
+            write_register(&cpu, as.u.rd, pc + read_upper_immediate(as.raw));
             break;
         case op_imm:
             switch ((enum insn_imm_func)as.i.funct3) {
             case imm_func_addi:
                 // x[rd] = x[rs1] + sext(immediate)
-                cpu.registers[as.i.rd] = bit_cast_i32(cpu.registers[as.i.rs1]) +
-                                         sext32_imm12(as.i.imm_11_0);
+                write_register(&cpu, as.i.rd,
+                               bit_cast_i32(read_register(&cpu, as.i.rs1)) +
+                                   sext32_imm12(as.i.imm_11_0));
                 break;
             case imm_func_slti:
                 // x[rd] = x[rs1] <s sext(immediate)
                 {
-                    int32_t signed_xrs1 = bit_cast_i32(cpu.registers[as.i.rs1]);
+                    int32_t signed_xrs1 =
+                        bit_cast_i32(read_register(&cpu, as.i.rs1));
                     int32_t signed_imm =
                         bit_cast_i32(sext32_imm12(as.i.imm_11_0));
                     // "cheat" by using an already implemented signed comparison
-                    cpu.registers[as.i.rd] = signed_xrs1 < signed_imm;
+                    write_register(&cpu, as.i.rd, signed_xrs1 < signed_imm);
                 }
                 break;
             case imm_func_sltiu:
                 // x[rd] = x[rs1] <u sext(immediate)
                 // "cheat" by using an already implemented unsigned comparison
-                cpu.registers[as.i.rd] =
-                    cpu.registers[as.i.rs1] < sext32_imm12(as.i.imm_11_0);
+                write_register(&cpu, as.i.rd,
+                               read_register(&cpu, as.i.rs1) <
+                                   sext32_imm12(as.i.imm_11_0));
                 break;
             case imm_func_xori: // sorry :(
                 // x[rd] = x[rs1] ^ sext(immediate)
-                cpu.registers[as.i.rd] =
-                    cpu.registers[as.i.rs1] ^ sext32_imm12(as.i.imm_11_0);
+                write_register(&cpu, as.i.rd,
+                               read_register(&cpu, as.i.rs1) ^
+                                   sext32_imm12(as.i.imm_11_0));
                 break;
             case imm_func_ori:
                 // x[rd] = x[rs1] | sext(immediate)
-                cpu.registers[as.i.rd] =
-                    cpu.registers[as.i.rs1] | sext32_imm12(as.i.imm_11_0);
+                write_register(&cpu, as.i.rd,
+                               read_register(&cpu, as.i.rs1) |
+                                   sext32_imm12(as.i.imm_11_0));
                 break;
             case imm_func_andi:
                 // x[rd] = x[rs1] & sext(immediate)
-                cpu.registers[as.i.rd] =
-                    cpu.registers[as.i.rs1] & sext32_imm12(as.i.imm_11_0);
+                write_register(&cpu, as.i.rd,
+                               read_register(&cpu, as.i.rs1) &
+                                   sext32_imm12(as.i.imm_11_0));
                 break;
             case imm_func_slli:
                 // x[rd] = x[rs1] << shamt
                 // shamt is lower five bits, since anything else would wrap
                 // around.
-                cpu.registers[as.i.rd] = cpu.registers[as.i.rs1]
-                                         << (as.i.imm_11_0 & 0x1f);
+                write_register(&cpu, as.i.rd,
+                               read_register(&cpu, as.i.rs1)
+                                   << (as.i.imm_11_0 & 0x1f));
                 break;
             case imm_func_srli: {
                 u8 shift_count = as.i.imm_11_0 & ((1 << 5) - 1);
@@ -132,12 +119,12 @@ void interpret(void *memory, u32 entrypoint) {
             }
             break;
         case op_load: {
-            i32 offset = *(i32 *)&cpu.registers[as.i.rs1];
+            i32 offset = bit_cast_i32(read_register(&cpu, as.i.rs1));
             void const *mem_loc = memory + offset;
             mem_loc += sext32_imm12(as.i.imm_11_0);
             switch ((enum insn_load_func)as.i.funct3) {
             case load_func_lbu: {
-                cpu.registers[as.i.rd] = *(uint8_t *)mem_loc;
+                write_register(&cpu, as.i.rd, *(uint8_t *)mem_loc);
                 break;
             }
             case load_func_lb:
@@ -153,11 +140,11 @@ void interpret(void *memory, u32 entrypoint) {
                 sext32_imm12((u32)as.s.imm_4_0 | (u32)as.s.imm_11_5 << 5);
 
             void *mem_loc =
-                memory + offset + bit_cast_i32(cpu.registers[as.s.rs1]);
+                memory + offset + bit_cast_i32(read_register(&cpu, as.s.rs1));
 
             switch ((enum insn_store_func)as.s.funct3) {
             case store_func_sb:
-                *(uint8_t *)mem_loc = cpu.registers[as.s.rs2];
+                *(uint8_t *)mem_loc = read_register(&cpu, as.s.rs2);
                 break;
             case store_func_sh:
             case store_func_sw:
@@ -172,8 +159,8 @@ void interpret(void *memory, u32 entrypoint) {
                                    (u32)as.b.imm_12 << 12 |
                                    (u32)as.s.imm_11_5 << 5 | (u32)as.s.imm_4_0);
 
-            u32 a = cpu.registers[as.b.rs1];
-            u32 b = cpu.registers[as.b.rs2];
+            u32 a = read_register(&cpu, as.b.rs1);
+            u32 b = read_register(&cpu, as.b.rs2);
 
             switch ((enum insn_branch_func)as.b.funct3) {
             case branch_func_beq:
@@ -192,17 +179,18 @@ void interpret(void *memory, u32 entrypoint) {
         case op_op: {
             switch ((enum insn_op_funct3)as.r.funct3) {
             case op_funct3_or:
-                cpu.registers[as.r.rd] =
-                    cpu.registers[as.r.rs1] | cpu.registers[as.r.rs2];
+                write_register(&cpu, as.r.rd,
+                               read_register(&cpu, as.r.rs1) |
+                                   read_register(&cpu, as.r.rs2));
                 break;
             case op_funct3_add: {
-                u32 s1 = cpu.registers[as.r.rs1];
-                u32 s2 = cpu.registers[as.r.rs2];
+                u32 s1 = read_register(&cpu, as.r.rs1);
+                u32 s2 = read_register(&cpu, as.r.rs2);
                 printf("add");
                 if (as.r.funct7 == op_funct7_sub) {
                     s2 = -s2;
                 }
-                cpu.registers[as.r.rd] = s1 + s2;
+                write_register(&cpu, as.r.rd, s1 + s2);
                 break;
             }
             case op_funct3_sll:
@@ -235,6 +223,18 @@ void interpret(void *memory, u32 entrypoint) {
             assert(!"not implemented");
         }
     }
+}
+
+static void write_register(struct rv32i *cpu, u8 reg_index, u32 value) {
+    // register 0 is a sink.
+    if (reg_index != 0) {
+        cpu->registers[reg_index - 1] = value;
+    }
+}
+static u32 read_register(struct rv32i const *cpu, u8 reg_index) {
+    if (reg_index == 0)
+        return 0;
+    return cpu->registers[reg_index - 1];
 }
 
 // vim:sw=4
