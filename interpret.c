@@ -115,7 +115,7 @@ void interpret(void *memory, u32 entrypoint) {
                 // around.
                 write_register(&cpu, as.i.rd,
                                read_register(&cpu, as.i.rs1)
-                                   << (as.i.imm_11_0 & 0x1f));
+                                   << read_shift_immediate(as.raw));
                 break;
             case imm_func_srli: {
 
