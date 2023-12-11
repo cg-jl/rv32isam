@@ -1,4 +1,5 @@
 #include "dasm.h"
+#include "../common/log.h"
 #include "bits.h"
 #include "insn.h"
 #include <assert.h>
@@ -17,6 +18,9 @@ void dasm(FILE *out, u32 raw) {
     as.raw = raw;
 
     switch (as.unknown.opcode) {
+    case op_auipc: {
+        fprintf(out, "auipc 0x%x", read_upper_immediate(as.raw));
+    } break;
     case op_load: {
         static char const *func_names[] = {
             [load_func_lb] = "lb",   [load_func_lh] = "lh",
@@ -132,7 +136,6 @@ void dasm(FILE *out, u32 raw) {
     case op_load_fp:
     case op_custom_0:
     case op_misc_mem:
-    case op_auipc:
     case op_imm_32:
     case op_store_fp:
     case op_custom_1:
