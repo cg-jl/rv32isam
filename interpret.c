@@ -10,6 +10,7 @@
 #include "rv/insn.h"
 #include <assert.h>
 #include <signal.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -117,14 +118,22 @@ void interpret(void *memory, u32 entrypoint) {
                                    << (as.i.imm_11_0 & 0x1f));
                 break;
             case imm_func_srli: {
-                u8 shift_count = as.i.imm_11_0 & ((1 << 5) - 1);
-                u32 rest = as.i.imm_11_0 & ~((1 << 5) - 1);
-                switch ((enum shift_func)rest) {
-                case shift_func_srli:
-                case shift_func_srai:
-                    assert(!"not implemented");
-                }
-                break;
+
+                u32 imm = read_i_immediate(as.raw);
+                u8 shift_count = read_shift_immediate(as.raw);
+
+                bool is_SRAI = (imm >> 12) & 1;
+                u32 src = read_register(&cpu, as.i.rs1);
+                // if it's SRAI, then we want to put the top bit in, in the
+                // shifted bits.
+                // otherwise, we "extend" with zero.
+                bool top_bit = (src >> 31) & is_SRAI;
+                // we shift left whatever it's left so that we end up
+                // with `shift_count` zeroes at the top.
+                u32 bit_addend = (~(u32)top_bit + 1) << (31 - shift_count);
+
+                u32 result = (src >> shift_count) | bit_addend;
+                write_register(&cpu, as.i.rd, result);
             }
             }
             break;
