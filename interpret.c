@@ -164,24 +164,30 @@ void interpret(void *memory, u32 entrypoint) {
         } break;
         case op_branch: {
 
-            i32 offset =
-                2 * sext32_generic((u32)as.b.imm_11 << 11 |
-                                   (u32)as.b.imm_12 << 12 |
-                                   (u32)as.s.imm_11_5 << 5 | (u32)as.s.imm_4_0);
+            i32 offset = bit_cast_i32(read_b_immediate(as.raw));
 
             u32 a = read_register(&cpu, as.b.rs1);
             u32 b = read_register(&cpu, as.b.rs2);
 
             switch ((enum insn_branch_func)as.b.funct3) {
-            case branch_func_beq:
-                if (a == b)
-                    pc += offset - 4;
-                break;
             case branch_func_bne:
+                if (a != b) {
+                    pc += offset - 4;
+                }
+                break;
+            case branch_func_beq:
+                if (a == b) {
+                    pc += offset - 4;
+                }
+                break;
+            case branch_func_bgeu:
+                if (a >= b) {
+                    pc += offset - 4;
+                }
+                break;
             case branch_func_blt:
             case branch_func_bge:
             case branch_func_bltu:
-            case branch_func_bgeu:
                 assert(!"not implemented branch");
             }
         } break;

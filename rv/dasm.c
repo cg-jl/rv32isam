@@ -44,11 +44,8 @@ void dasm(FILE *out, u32 raw) {
             [branch_func_bltu] = "bltu", [branch_func_bgeu] = "bgeu",
         };
 
-        i32 imm =
-            sext32_imm12(((u32)as.b.imm_12 << 11 | (u32)as.b.imm_11 << 12 |
-                          (u32)as.b.imm_10_5 << 4 | (u32)as.b.imm_4_1)) *
-            2;
-        fprintf(out, "%s %s, %s, %s%x", branch_names[as.b.funct3],
+        i32 imm = bit_cast_i32(read_b_immediate(as.raw));
+        fprintf(out, "%s %s, %s, %s0x%x", branch_names[as.b.funct3],
                 abi_reg_names[as.b.rs1], abi_reg_names[as.b.rs2],
                 imm < 0 ? "-" : "", imm);
         break;
