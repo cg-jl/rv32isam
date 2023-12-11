@@ -99,9 +99,10 @@ void dasm(FILE *out, u32 raw) {
             [store_func_sw] = "sw",
         };
 
-        fprintf(out, "%s %s, %d(%s)", modes[as.s.funct3],
-                abi_reg_names[as.s.rs2],
-                sext32_generic((u32)as.s.imm_4_0 | (u32)as.s.imm_11_5 << 12),
+        i32 imm = bit_cast_i32(read_s_immediate(as.raw));
+
+        fprintf(out, "%s %s, %s0x%x(%s)", modes[as.s.funct3],
+                abi_reg_names[as.s.rs2], imm < 0 ? "-" : "-", imm,
                 abi_reg_names[as.s.rs1]);
     } break;
     case op_op:
