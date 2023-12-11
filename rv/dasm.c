@@ -20,6 +20,13 @@ void dasm(FILE *out, u32 raw, u32 insn_offset) {
     // 0b1101111
 
     switch (as.unknown.opcode) {
+    case op_jalr: {
+        i32 imm = bit_cast_i32(read_i_immediate(as.raw));
+        fprintf(out, "jalr %s, %s0x%x(%s)", abi_reg_names[as.i.rd],
+                imm < 0 ? "-" : "", make_positive(imm),
+                abi_reg_names[as.i.rs1]);
+        break;
+    }
     case op_jal: {
         fprintf(out, "jal %s, 0x%x", abi_reg_names[as.j.rd],
                 insn_offset + bit_cast_i32(read_j_immediate(as.raw)));
@@ -154,7 +161,6 @@ void dasm(FILE *out, u32 raw, u32 insn_offset) {
     case op_nmadd:
     case op_fp:
     case op_custom2_rv128:
-    case op_jalr:
     case op_custom3_rv128:
         assert(!"TODO: disassemble");
     }

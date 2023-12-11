@@ -3,6 +3,16 @@
 #include "insn.h"
 
 static i32 __attribute_const__ bit_cast_i32(u32 v) { return *(i32 *)&v; }
+static u32 __attribute_const__ bit_cast_u32(i32 v) {
+    union {
+        i32 from;
+        u32 to;
+    } as;
+    as.from = v;
+    return as.to;
+}
+
+static i32 __attribute_const__ make_positive(i32 v) { return v < 0 ? -v : v; }
 
 static i32 __attribute_const__ sext32_imm32(u32 x) { return bit_cast_i32(x); }
 

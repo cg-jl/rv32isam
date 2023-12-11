@@ -2,6 +2,9 @@
 // Created by cg on 10/17/23.
 //
 
+// Spec:
+// https://riscv.org/wp-content/uploads/2017/05/riscv-spec-v2.2.pdf
+
 #include "interpret.h"
 #include "common/log.h"
 #include "common/types.h"
@@ -46,13 +49,27 @@ void interpret(void *memory, u32 entrypoint) {
             return;
         }
         switch (as.unknown.opcode) {
+        case op_jalr: {
+            // Quoting Spec:
+            // > The target address is obtained by adding the 12-bit signed
+            // I-immediate to the register rs1, then setting the
+            // least-significant bit of the result to zero.
+            u32 jump_pc =
+                (read_i_immediate(as.raw) + read_register(&cpu, as.i.rs1)) &
+                ~0b1;
+
+            write_register(&cpu, as.i.rd, pc + 4);
+            // ensure we don't mess the address by adding 4 in the loop footer.
+            pc = jump_pc - 4;
+
+        } break;
         case op_jal: {
             u32 offt = read_j_immediate(as.raw);
             u32 jump_pc = pc + offt;
 
             write_register(&cpu, as.j.rd, pc + 4);
 
-            // ensure we don't mess the address by jumping too far.
+            // ensure we don't mess the address by adding 4 in the loop footer.
             pc = jump_pc - 4;
 
         } break;
@@ -243,7 +260,6 @@ void interpret(void *memory, u32 entrypoint) {
         case op_nmadd:
         case op_fp:
         case op_custom2_rv128:
-        case op_jalr:
         case op_custom3_rv128:
             assert(!"not implemented");
         }
