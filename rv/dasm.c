@@ -17,7 +17,13 @@ void dasm(FILE *out, u32 raw) {
 
     as.raw = raw;
 
+    // 0b1101111
+
     switch (as.unknown.opcode) {
+    case op_jal: {
+        fprintf(out, "jal %s, %u", abi_reg_names[as.j.rd],
+                recover_jal_bits(as.j));
+    } break;
     case op_auipc: {
         fprintf(out, "auipc 0x%x", read_upper_immediate(as.raw));
     } break;

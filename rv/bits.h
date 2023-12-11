@@ -1,5 +1,6 @@
 #pragma once
 #include "../common/types.h"
+#include "insn.h"
 
 static i32 bit_cast_i32(u32 v) { return *(i32 *)&v; }
 
@@ -25,4 +26,9 @@ static i32 sext32_imm12(u16 x_12) {
 
 static u32 read_upper_immediate(u32 raw) {
     return sext32_imm32(raw & 0xfffff000);
+}
+
+static u32 recover_jal_bits(struct j_format j) {
+    return (u32)j.imm_11 << 11 | (u32)j.imm_20 << 20 | (u32)j.imm_10_1 << 1 |
+           (u32)j.imm_19_12 << 12;
 }

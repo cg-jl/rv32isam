@@ -77,7 +77,7 @@ enum insn_op {
     op_branch = 0b1100011,
     op_jalr = 0b1100111,
     // reserved: 0b1101011
-
+    op_jal = 0b1101111,
 
     // ecall/ebreak is encoded via a I-type. Imm_11_0 is encoded by ecall_imm
     op_system = 0b1110011,
@@ -278,7 +278,7 @@ union insn {
         u8 rd : 5;
         u32 imm_31_12 : 20;
     } __attribute__((packed)) u;
-    struct {
+    struct j_format {
         enum insn_op opcode : 7;
         u8 rd : 5;
         u8 imm_19_12 : 8;
