@@ -35,7 +35,7 @@ static i32 __attribute_const__ sext32_imm12(u16 x_12) {
 }
 
 static u32 __attribute_const__ read_upper_immediate(u32 raw) {
-    return sext32_imm32(raw & 0xfffff000);
+    return raw & 0xfffff000;
 }
 
 static u32 __attribute_const__ read_j_immediate(u32 raw) {

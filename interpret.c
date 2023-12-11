@@ -88,15 +88,14 @@ void interpret(void *memory, u32 entrypoint) {
                 // x[rd] = x[rs1] + sext(immediate)
                 write_register(&cpu, as.i.rd,
                                bit_cast_i32(read_register(&cpu, as.i.rs1)) +
-                                   sext32_imm12(as.i.imm_11_0));
+                                   bit_cast_i32(read_i_immediate(as.raw)));
                 break;
             case imm_func_slti:
                 // x[rd] = x[rs1] <s sext(immediate)
                 {
                     int32_t signed_xrs1 =
                         bit_cast_i32(read_register(&cpu, as.i.rs1));
-                    int32_t signed_imm =
-                        bit_cast_i32(sext32_imm12(as.i.imm_11_0));
+                    int32_t signed_imm = bit_cast_i32(read_i_immediate(as.raw));
                     // "cheat" by using an already implemented signed comparison
                     write_register(&cpu, as.i.rd, signed_xrs1 < signed_imm);
                 }
@@ -106,25 +105,25 @@ void interpret(void *memory, u32 entrypoint) {
                 // "cheat" by using an already implemented unsigned comparison
                 write_register(&cpu, as.i.rd,
                                read_register(&cpu, as.i.rs1) <
-                                   sext32_imm12(as.i.imm_11_0));
+                                   read_i_immediate(as.raw));
                 break;
             case imm_func_xori: // sorry :(
                 // x[rd] = x[rs1] ^ sext(immediate)
                 write_register(&cpu, as.i.rd,
                                read_register(&cpu, as.i.rs1) ^
-                                   sext32_imm12(as.i.imm_11_0));
+                                   read_i_immediate(as.raw));
                 break;
             case imm_func_ori:
                 // x[rd] = x[rs1] | sext(immediate)
                 write_register(&cpu, as.i.rd,
                                read_register(&cpu, as.i.rs1) |
-                                   sext32_imm12(as.i.imm_11_0));
+                                   read_i_immediate(as.raw));
                 break;
             case imm_func_andi:
                 // x[rd] = x[rs1] & sext(immediate)
                 write_register(&cpu, as.i.rd,
                                read_register(&cpu, as.i.rs1) &
-                                   sext32_imm12(as.i.imm_11_0));
+                                   read_i_immediate(as.raw));
                 break;
             case imm_func_slli:
                 // x[rd] = x[rs1] << shamt

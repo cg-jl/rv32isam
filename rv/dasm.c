@@ -32,7 +32,8 @@ void dasm(FILE *out, u32 raw, u32 insn_offset) {
                 insn_offset + bit_cast_i32(read_j_immediate(as.raw)));
     } break;
     case op_auipc: {
-        fprintf(out, "auipc 0x%x", read_upper_immediate(as.raw));
+        fprintf(out, "auipc %s, 0x%x", abi_reg_names[as.u.rd],
+                read_upper_immediate(as.raw));
     } break;
     case op_load: {
         static char const *func_names[] = {
@@ -85,12 +86,14 @@ void dasm(FILE *out, u32 raw, u32 insn_offset) {
         case imm_func_sltiu:
         case imm_func_xori:
         case imm_func_ori:
-        case imm_func_andi:
+        case imm_func_andi: {
 
-            fprintf(out, "%s %s, %s, 0x%x", imm_names[as.i.funct3],
+            i32 imm = bit_cast_i32(read_i_immediate(as.raw));
+
+            fprintf(out, "%s %s, %s, %s0x%x", imm_names[as.i.funct3],
                     abi_reg_names[as.i.rd], abi_reg_names[as.i.rs1],
-                    read_shift_immediate(as.raw));
-            break;
+                    imm < 0 ? "-" : "", make_positive(imm));
+        } break;
 
         case imm_func_slli:
             fprintf(out, "slli %s, %s, 0x%x", abi_reg_names[as.i.rd],
