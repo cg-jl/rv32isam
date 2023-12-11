@@ -82,10 +82,10 @@ static u32 read_b_immediate(u32 raw) {
 
     union {
         struct {
-            u32 unused_below : 6;
+            u32 unused_below : 7;
             u32 inst_7 : 1;
             u32 inst_11_8 : 4;
-            u32 unused_inner : 14;
+            u32 unused_inner : 13; // 12-24
             u32 inst_30_25 : 6;
             u32 inst_31 : 1;
         } PACKED;
@@ -98,6 +98,7 @@ static u32 read_b_immediate(u32 raw) {
     imm.zero = 0;
     imm.inst_7 = extract.inst_7;
     imm.inst_11_8 = extract.inst_11_8;
+    imm.inst_30_25 = extract.inst_30_25;
     imm.inst_31 = 0ul - extract.inst_31;
 
     return imm.raw;
@@ -107,18 +108,18 @@ static u32 read_s_immediate(u32 raw) {
     union {
         struct {
             u32 inst_7 : 1;
-            u32 inst_11_8 : 5;
+            u32 inst_11_8 : 4;
             u32 inst_30_25 : 6;
-            u32 inst_31 : 20;
+            u32 inst_31 : 21;
         } PACKED;
         u32 raw;
     } imm;
     union {
         struct {
-            u32 zero_below : 6;
+            u32 zero_below : 7;
             u32 inst_7 : 1;
             u32 inst_11_8 : 4;
-            u32 unused_inner : 14;
+            u32 unused_inner : 13;
             u32 inst_30_25 : 6;
             u32 inst_31 : 1;
         } PACKED;
